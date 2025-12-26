@@ -1,0 +1,787 @@
+// Copyright 2025 Nigel Tao.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
+
+// --------
+
+/// clloverview is a command-line tool that prints an overview (a table of
+/// contents) of source code written in C-like languages.
+
+// --------
+
+#include <errno.h>
+#include <fcntl.h>
+#include <inttypes.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+// --------
+
+#define DEBUG_DUMP_HASH_TABLE
+#define DEBUG_DUMP_STRINGS
+#define DEBUG_DUMP_TOKENS
+
+// --------
+
+typedef const char* error_message_t;
+
+// clang-format off
+
+static error_message_t err_com_namelong = "command line: input filename is too long";
+static error_message_t err_com_unsuflag = "command line: unsupported flag";
+static error_message_t err_com_unsuname = "command line: unsupported input filename";
+static error_message_t err_int_badargum = "internal: bad argument";
+static error_message_t err_int_endoffil = "internal: end of file";
+static error_message_t err_tok_backswnt = "tokenize: backslash was not terminated";
+static error_message_t err_tok_itlbytes = "tokenize: input is too large (in terms of bytes)";
+static error_message_t err_tok_itllines = "tokenize: input is too large (in terms of lines)";
+static error_message_t err_tok_itltoken = "tokenize: input is too large (in terms of tokens)";
+static error_message_t err_tok_itluniqs = "tokenize: input is too large (in terms of unique strings)";
+static error_message_t err_tok_nulbytee = "tokenize: NUL byte encountered";
+static error_message_t err_tok_quotewnt = "tokenize: quoted literal was not terminated";
+static error_message_t err_tok_slashwnt = "tokenize: slash-star comment was not terminated";
+static error_message_t err_tok_tokistol = "tokenize: token is too long";
+static error_message_t err_tok_unsuunic = "tokenize: unsupported Unicode input";
+
+// clang-format on
+
+// --------
+
+static const char* hex_digits = "0123456789ABCDEF";
+
+static const uint8_t alpha_numeric_lut[256] = {
+    /// Bit 0x01 means ASCII alphabetic or underscore.
+    ///
+    /// Bit 0x02 means ASCII digit.
+    ///
+    /// Bit 0x04 means 'A'-'F' or 'a'-'f'.
+    ///
+    /// Bit 0x08 means single quote or underscore, which can be found inside
+    /// numeric literals in various languages. For example, 123'456 or 123_456.
+
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  //
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  //
+    0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0, 0,  // '\''
+    2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 0, 0, 0, 0, 0, 0,  // '0'-'9'
+    0, 5, 5, 5, 5, 5, 5, 1, 1, 1, 1, 1, 1, 1, 1, 1,  // 'A'-'O'
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 9,  // 'P'-'Z', '_'
+    0, 5, 5, 5, 5, 5, 5, 1, 1, 1, 1, 1, 1, 1, 1, 1,  // 'a'-'o'
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0,  // 'p'-'z'
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  //
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  //
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  //
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  //
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  //
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  //
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  //
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  //
+};
+
+// --------
+
+static inline uint16_t  //
+peek_u16le(const void* ptr) {
+  const uint8_t* p = (const uint8_t*)ptr;
+  return (((uint16_t)p[0]) << 0) | (((uint16_t)p[1]) << 8);
+}
+
+static inline void  //
+poke_u16le(void* ptr, uint16_t x) {
+  uint8_t* p = (uint8_t*)ptr;
+  p[0] = (uint8_t)(x >> 0);
+  p[1] = (uint8_t)(x >> 8);
+}
+
+// --------
+
+typedef uint32_t token_t;
+/// The bit-packing:
+///
+/// - The highest 1 bit  is  the major category (0 = indirect, 1 = direct).
+/// - The next    1 bit  is  the minor category.
+/// - The middle  9 bits are the token's string representation's length.
+/// - The low    21 bits are the payload.
+///
+/// The high two bits combine to give four categories:
+///
+/// - 0x0???????u is an integery token, like "45".
+/// - 0x4???????u is a  namey token, like "foobar".
+/// - 0x8???????u is a  punctuation token, like "=".
+/// - 0xC???????u is a  macro argument token, like "the 2nd macro argument".
+///
+/// The maximum (inclusive) token's string representation's length is 511, not
+/// counting a trailing NUL byte (if stored in g_string_contents). This is the
+/// length of the string used when printing the token, not when parsing the
+/// token. The two are often the same but for macro arguments, when parsing
+/// "#define apply_twice(f,x) f(f(x))", the later "f" and "x" instances are
+/// parsed as "the 1st macro argument" or "the 2nd macro argument", whose
+/// string forms when printing ("¤000000", "¤000001") are both 8 bytes long.
+///
+/// An indirect (integery or namey) token's payload is an offset into the
+/// g_string_contents array.
+///
+/// A punctuation token's payload holds up to three 7-bit ASCII characters. The
+/// first character is in the lowest 7 bits.
+///
+/// A macro argument token's payload is the N in "the Nth macro argument".
+///
+/// 0x00000000u is an invalid token, because a token must have positive length.
+/// 0xFFFFFFFFu is also an invalid token, because a macro argument token's
+/// length must be 8, e.g. "¤234567".
+
+static token_t  //
+make_one_byte_punctuation_token(char c) {
+  return ((uint32_t)(0x7F & c)) | 0x80200000u;
+}
+
+// clang-format off
+
+#define HIGH_11_BITS_MASK   0xFFE00000u
+#define LOW_21_BITS_MASK    0x001FFFFFu
+
+#define TOKEN_FOR_U000A_LINE_FEED               0x8020000Au
+#define TOKEN_FOR_U0023_NUMBER_SIGN             0x80200023u
+#define TOKEN_FOR_U0028_LEFT_PARENTHESIS        0x80200028u
+#define TOKEN_FOR_U0029_RIGHT_PARENTHESIS       0x80200029u
+#define TOKEN_FOR_U002A_ASTERISK                0x8020002Au
+#define TOKEN_FOR_U002C_COMMA                   0x8020002Cu
+#define TOKEN_FOR_U002E_FULL_STOP               0x8020002Eu
+#define TOKEN_FOR_U003B_SEMICOLON               0x8020003Bu
+#define TOKEN_FOR_U003D_EQUALS_SIGN             0x8020003Du
+#define TOKEN_FOR_U0040_COMMERCIAL_AT           0x80200040u
+#define TOKEN_FOR_U005B_LEFT_SQUARE_BRACKET     0x8020005Bu
+#define TOKEN_FOR_U005D_RIGHT_SQUARE_BRACKET    0x8020005Du
+#define TOKEN_FOR_U007B_LEFT_CURLY_BRACKET      0x8020007Bu
+#define TOKEN_FOR_U007D_RIGHT_CURLY_BRACKET     0x8020007Du
+
+#define TOKEN_FOR_OPERATOR_COLON_COLON          0x80401D3Au
+#define TOKEN_FOR_OPERATOR_MINUS_MINUS          0x804016ADu
+#define TOKEN_FOR_OPERATOR_PLUS_PLUS            0x804015ABu
+
+#define TOKEN_FOR_PLACEHOLDER_CHAR              0x8069D2A7u
+#define TOKEN_FOR_PLACEHOLDER_FLOATING_POINT    0x806C9731u
+#define TOKEN_FOR_PLACEHOLDER_STRING            0x806892A2u
+/// Placeholders are '?', 1.2 and "?".
+
+// clang-format on
+
+typedef uint64_t line_number_and_token_t;
+/// Line number is in the high 32 bits, token is in the low 32 bits.
+
+// --------
+
+// Global variables, named g_foobar or n_foobar. n_foobar is g_foobar's length
+// (the number of g_foobar elements used).
+
+static const char* g_progname_ptr = NULL;
+static const char* g_filename_ptr = NULL;
+static size_t g_filename_len = 0u;
+
+static const char* g_input_ptr = NULL;
+static const char* g_input_end = NULL;
+
+static token_t g_token = 0u;
+static uint32_t g_line_number = 0u;
+#define MAX_EXCL_LINE_NUMBER 0x80000000u
+
+static uint32_t n_hash_table = 0u;
+static uint32_t n_lnats = 0u;
+static uint32_t n_string_contents = 0u;
+
+#define G_HASH_TABLE_SIZE 262144
+static uint32_t g_hash_table[G_HASH_TABLE_SIZE] = {0};
+/// A hash map from alpha-numeric strings (using the Jenkins hash function with
+/// linear probing) to indirect tokens.
+///
+/// 1 MiB = 256 Ki elements × 4 bytes per element.
+
+#define G_LNATS_SIZE 1048576
+static line_number_and_token_t g_lnats[G_LNATS_SIZE] = {0};
+/// 8 MiB = 1 Mi elements × 8 bytes per element.
+
+static char g_string_contents[2097152] = {0};
+/// 2 MiB. Offsets into this array fit into 21 bits.
+
+static void  //
+reset_global_tokenizer_state(void) {
+  if (n_hash_table > 0u) {
+    memset(g_hash_table, 0, sizeof(g_hash_table));
+  }
+
+  g_token = 0u;
+  g_line_number = 1u;
+
+  n_hash_table = 0u;
+  n_lnats = 0u;
+  n_string_contents = 0u;
+}
+
+// --------
+
+static uint32_t  //
+jenkins(const char* s_ptr, size_t s_len) {
+  /// This implements https://en.wikipedia.org/wiki/Jenkins_hash_function
+
+  uint32_t hash = 0u;
+  while (s_len--) {
+    hash += ((uint8_t)(*s_ptr++));
+    hash += hash << 10;
+    hash ^= hash >> 6;
+  }
+  hash += hash << 3;
+  hash ^= hash >> 11;
+  hash += hash << 15;
+  return hash;
+}
+
+#define INTERNALIZE_NAME(s) (internalize(s, strlen(s), true), g_token)
+/// s should be a compile-time string literal (and so cannot fail with
+/// err_tok_tokistol).
+
+static error_message_t  //
+internalize(const char* s_ptr, size_t s_len, bool namey) {
+  /// Sets g_token to the integery or namey token for the string s, inserting
+  /// the string into g_hash_table and g_string_contents if not seen before.
+  /// Internalizing is also known as string interning.
+
+  if (s_len == 0u) {
+    return err_int_badargum;
+  } else if (s_len >= 512u) {
+    return err_tok_tokistol;
+  }
+  uint32_t high_bits = (((uint32_t)(s_len)) << 21) | (namey ? 0x40000000u : 0u);
+
+  const uint32_t hash_mask = G_HASH_TABLE_SIZE - 1;
+  uint32_t h = jenkins(s_ptr, s_len) & hash_mask;
+  for (;; h = (h + 1) & hash_mask) {
+    uint32_t v = g_hash_table[h];
+    if (v == 0) {
+      break;
+    } else if ((v & HIGH_11_BITS_MASK) != high_bits) {
+      continue;
+    }
+
+    uint32_t offset = v & LOW_21_BITS_MASK;
+    if (!memcmp(&g_string_contents[offset + 2], s_ptr, s_len)) {
+      g_token = v;
+      return NULL;
+    }
+  }
+
+  size_t capacity = sizeof(g_string_contents) - n_string_contents;
+  if ((capacity < (s_len + 3u)) || (n_hash_table >= (G_HASH_TABLE_SIZE / 2))) {
+    return err_tok_itluniqs;
+  }
+  n_hash_table++;
+  g_token = high_bits | ((uint32_t)(n_string_contents));
+  g_hash_table[h] = g_token;
+
+  poke_u16le(g_string_contents + n_string_contents, 0u);
+  n_string_contents += 2u;
+
+  memcpy(g_string_contents + n_string_contents, s_ptr, s_len);
+  n_string_contents += s_len;
+
+  g_string_contents[n_string_contents] = 0;
+  n_string_contents += 1u;
+
+  return NULL;
+}
+
+static const char*  //
+token_as_cstring(token_t t) {
+  /// Returns a C-style (NUL-byte terminated) printable string for t. The
+  /// string is temporary, in that the backing array can be re-used on the next
+  /// call to this function.
+
+  static char buffer[16] = {0};
+
+  switch (t >> 30) {
+    case 2:
+      buffer[0] = 0x7Fu & (t >> 0);
+      buffer[1] = 0x7Fu & (t >> 7);
+      buffer[2] = 0x7Fu & (t >> 14);
+      buffer[3 & (t >> 21)] = 0;
+      return buffer;
+
+    case 3:
+      t &= LOW_21_BITS_MASK;
+      // "¤", U+00B5 CURRENCY SIGN, in UTF-8 is 0xC2 0xA4.
+      buffer[0] = 0xC2;
+      buffer[1] = 0xA4;
+      for (int i = 0; i < 6; i++) {
+        buffer[7 - i] = hex_digits[t & 15u];
+        t >>= 4;
+      }
+      buffer[8] = 0x00;
+      return buffer;
+  }
+
+  uint32_t offset = t & LOW_21_BITS_MASK;
+  return &g_string_contents[offset + 2];
+}
+
+static error_message_t  //
+next_numeric_token(void) {
+  /// Parses the next token, a numeric one, like "123", "45ul", "6.78" or
+  /// "0x9A". The result might be a numbery (indirect) token for integers, or
+  /// it might be a placeholder 'punctuation' (direct) token for floating point
+  /// numbers. As a side effect, it updates g_input_ptr and g_token.
+
+  uint8_t lut_bits = 0x0A;
+
+  const char* p = g_input_ptr;
+  if (*p++ == '0') {
+    if (p >= g_input_end) {
+      g_input_ptr = g_input_end;
+      return internalize("0", 1u, false);
+    } else if ((*p == 'b') || (*p == 'x')) {
+      p++;
+      lut_bits = 0x0E;
+    }
+  }
+
+  while ((p < g_input_end) && (lut_bits & alpha_numeric_lut[0xFF & *p])) {
+    p++;
+  }
+
+  if ((p < g_input_end) && (*p == '.')) {
+    p++;
+    while ((p < g_input_end) && (lut_bits & alpha_numeric_lut[0xFF & *p])) {
+      p++;
+    }
+
+    if ((p < g_input_end) && ((*p | 0x20) == 'e')) {
+      p++;
+      if ((p < g_input_end) && ((*p | 0x02) == '-')) {
+        p++;
+      }
+      while ((p < g_input_end) && (0x02 & alpha_numeric_lut[0xFF & *p])) {
+        p++;
+      }
+    }
+
+    g_input_ptr = p;
+    g_token = TOKEN_FOR_PLACEHOLDER_FLOATING_POINT;
+    return NULL;
+  }
+
+  if ((p < g_input_end) && ((*p | 0x20) == 'u')) {
+    p++;
+  }
+  while ((p < g_input_end) && ((*p | 0x20) == 'l')) {
+    p++;
+  }
+
+  const char* original_p = g_input_ptr;
+  g_input_ptr = p;
+  size_t len = ((size_t)(p - original_p));
+  return internalize(original_p, len, false);
+}
+
+static error_message_t  //
+next_token(bool return_line_feed_as_a_token) {
+  /// Parses the next token. As a side effect, it updates g_input_ptr, g_token
+  /// and g_line_number.
+
+  const char* p = g_input_ptr;
+
+restart_next_token:
+
+  // Consume any leading whitespace.
+  while (true) {
+    if (p >= g_input_end) {
+      return err_int_endoffil;
+    } else if (*p > ' ') {
+      break;
+    }
+    const char c = *p++;
+    if (c == '\n') {
+      g_line_number++;
+      if (g_line_number >= MAX_EXCL_LINE_NUMBER) {
+        return err_tok_itllines;
+      } else if (return_line_feed_as_a_token) {
+        g_input_ptr = p;
+        g_token = TOKEN_FOR_U000A_LINE_FEED;
+        return NULL;
+      }
+    } else if (c == '\x00') {
+      return err_tok_nulbytee;
+    }
+  }
+
+  // Handle name and number tokens.
+  uint8_t alpha_numeric = 0x03 & alpha_numeric_lut[0xFF & *p];
+  if (alpha_numeric == 0x01) {
+    const char* original_p = p;
+    do {
+      p++;
+    } while ((p < g_input_end) && (0x03 & alpha_numeric_lut[0xFF & *p]));
+    g_input_ptr = p;
+    size_t len = ((size_t)(p - original_p));
+    return internalize(original_p, len, true);
+
+  } else if (alpha_numeric == 0x02) {
+    g_input_ptr = p;
+    return next_numeric_token();
+  }
+
+  // Handle quote tokens.
+  const char c = *p++;
+  if ((c == '"') || (c == '\'')) {
+    for (bool backslash = false; p < g_input_end; p++) {
+      if (*p == '\n') {
+        g_line_number++;
+        if (g_line_number >= MAX_EXCL_LINE_NUMBER) {
+          return err_tok_itllines;
+        }
+      }
+
+      if (backslash) {
+        backslash = false;
+        continue;
+      } else if (*p == c) {
+        g_input_ptr = p + 1;
+        g_token = (c == '"') ? TOKEN_FOR_PLACEHOLDER_STRING
+                             : TOKEN_FOR_PLACEHOLDER_CHAR;
+        return NULL;
+      }
+
+      backslash = *p == '\\';
+    }
+    return err_tok_quotewnt;
+  }
+
+  // From here onwards, it's comments (or a backslash-line-feed), which
+  // restarts parsing the next token, or punctuation.
+
+  if (c == '/') {
+    if (p >= g_input_end) {
+      // No-op.
+
+    } else if (*p == '/') {  // Slash-slash comment.
+      p++;
+      for (; (p < g_input_end) && (*p != '\n'); p++) {
+      }
+      goto restart_next_token;
+
+    } else if (*p == '*') {  // Slash-star comment.
+      p++;
+      for (;; p++) {
+        if (p >= (g_input_end - 1)) {
+          return err_tok_slashwnt;
+        } else if ((p[0] == '*') && (p[1] == '/')) {
+          p += 2;
+          break;
+        } else if (p[0] == '\n') {
+          g_line_number++;
+          if (g_line_number >= MAX_EXCL_LINE_NUMBER) {
+            return err_tok_itllines;
+          }
+        }
+      }
+      goto restart_next_token;
+    }
+
+  } else if (c == '\\') {
+    for (; p < g_input_end; p++) {
+      if (*p == '\n') {
+        p++;
+        g_line_number++;
+        if (g_line_number >= MAX_EXCL_LINE_NUMBER) {
+          return err_tok_itllines;
+        }
+        goto restart_next_token;
+      }
+    }
+    return err_tok_backswnt;
+
+  } else if (c == '+') {
+    if ((p < g_input_end) && (*p == '+')) {
+      g_input_ptr = p + 1;
+      g_token = TOKEN_FOR_OPERATOR_PLUS_PLUS;
+      return NULL;
+    }
+
+  } else if (c == '-') {
+    if ((p < g_input_end) && (*p == '-')) {
+      g_input_ptr = p + 1;
+      g_token = TOKEN_FOR_OPERATOR_MINUS_MINUS;
+      return NULL;
+    }
+
+  } else if (c == ':') {
+    if ((p < g_input_end) && (*p == ':')) {
+      g_input_ptr = p + 1;
+      g_token = TOKEN_FOR_OPERATOR_COLON_COLON;
+      return NULL;
+    }
+
+  } else if (c >= 0x80) {
+    return err_tok_unsuunic;
+  }
+
+  g_input_ptr = p;
+  g_token = make_one_byte_punctuation_token(c);
+  return NULL;
+}
+
+static error_message_t  //
+tokenize() {
+  /// Populates the g_lnats array and sets n_lnats.
+
+  reset_global_tokenizer_state();
+
+#ifdef DEBUG_DUMP_TOKENS
+  fprintf(stderr, "# index    line    token\n");
+#endif
+
+  while (true) {
+    error_message_t err = next_token(false);
+    if (err == NULL) {
+      // No-op.
+    } else if (err != err_int_endoffil) {
+      return err;
+    } else {
+      break;
+    }
+
+    if (g_token == TOKEN_FOR_U0023_NUMBER_SIGN) {
+      return "TODO: preprocessor support";
+    }
+
+#ifdef DEBUG_DUMP_TOKENS
+    fprintf(stderr, "#%06u    %4u    0x%08X    %s\n", n_lnats, g_line_number,
+            g_token, token_as_cstring(g_token));
+#endif
+
+    if (n_lnats >= (sizeof(g_lnats) / sizeof(line_number_and_token_t))) {
+      return err_tok_itltoken;
+    }
+    g_lnats[n_lnats++] =
+        (((uint64_t)(g_line_number)) << 32) | ((uint64_t)(g_token));
+  }
+
+#ifdef DEBUG_DUMP_HASH_TABLE
+  for (uint32_t h = 0; h < G_HASH_TABLE_SIZE; h++) {
+    uint32_t v = g_hash_table[h];
+    if (v == 0) {
+      continue;
+    }
+    char* ptr = &g_string_contents[v & LOW_21_BITS_MASK];
+    uint16_t m = peek_u16le(ptr);
+    fprintf(stderr,
+            "hash    h: 0x%05" PRIX32 "    v: 0x%08" PRIX32
+            "    m: 0x%04" PRIX32 "    s: %s\n",
+            // h=hash_key, v=value, m=macro, s=string.
+            h, v, ((uint32_t)(m)), ptr + 2);
+  }
+#endif
+
+#ifdef DEBUG_DUMP_STRINGS
+  fprintf(stderr, "strings       0123456789ABCDEF\n");
+  static char dump_strings_buffer[57] =
+      "0123456789ABCDEF    00112233 44556677 8899AABB CCDDEEFF\n";
+  for (uint32_t i = 0; i < n_string_contents; i += 16) {
+    for (uint32_t j = 0; j < 16; j++) {
+      uint32_t k = i + j;
+      char c = (k < n_string_contents) ? g_string_contents[k] : 0;
+      dump_strings_buffer[j] = (0x03 & alpha_numeric_lut[0xFF & c]) ? c : '.';
+      dump_strings_buffer[20 + (2 * j) + (j / 4)] = hex_digits[15 & (c >> 4)];
+      dump_strings_buffer[21 + (2 * j) + (j / 4)] = hex_digits[15 & (c >> 0)];
+    }
+    fprintf(stderr, "0x%08" PRIX32 "    %s", i, dump_strings_buffer);
+  }
+#endif
+
+  return NULL;
+}
+
+// --------
+
+static bool  //
+looks_like_bash_python_etc(void) {
+  const char* p = g_input_ptr;
+  for (; (p < g_input_end) && (*p <= ' '); p++) {
+  }
+  if ((p >= g_input_end) || (*p++ != '#')) {
+    return false;
+  }
+  if ((p >= g_input_end) || (*p++ != '!')) {
+    return false;
+  }
+  return true;
+}
+
+static error_message_t  //
+process_file_contents(const char* data_ptr, const size_t data_len) {
+  g_input_ptr = data_ptr;
+  g_input_end = data_ptr + data_len;
+
+  if (looks_like_bash_python_etc()) {
+    return NULL;
+  }
+  error_message_t err = tokenize();
+  if (err != NULL) {
+    return err;
+  }
+  // TODO: analyze the tokens.
+  return NULL;
+}
+
+static error_message_t  //
+process_fd(int fd) {
+  static char data_array[67108864] = {0};  // 64MiB.
+
+  do {
+    struct stat z;
+    if (fstat(fd, &z) || !S_ISREG(z.st_mode)) {
+      break;
+    } else if (z.st_size <= 0) {
+      return NULL;
+    } else if (sizeof(data_array) <= z.st_size) {
+      return err_tok_itlbytes;
+    }
+
+    const size_t data_len = z.st_size;
+    char* const data_ptr = mmap(NULL, data_len, PROT_READ, MAP_SHARED, fd, 0);
+    if (data_ptr == MAP_FAILED) {
+      break;
+    }
+    error_message_t ret = process_file_contents(data_ptr, data_len);
+    munmap(data_ptr, data_len);
+    return ret;
+  } while (false);
+
+  for (size_t data_len = 0; data_len < sizeof(data_array);) {
+    ssize_t n = read(fd, data_array + data_len, sizeof(data_array) - data_len);
+    if (n > 0) {
+      data_len += ((size_t)(n));
+    } else if (n == 0) {
+      return process_file_contents(data_array, data_len);
+    } else if (errno == EINTR) {
+      continue;
+    } else {
+      return strerror(errno);
+    }
+  }
+
+  return err_tok_itlbytes;
+}
+
+static error_message_t  //
+process_file(const char* filename) {
+  size_t n = 0u;
+  for (const char* p = filename; *p; p++) {
+    if (*p < ' ') {
+      g_filename_ptr = "<elided>";
+      g_filename_len = 8u;
+      return err_com_namelong;
+    } else if ((*p == '"') || (*p == '\\')) {
+      g_filename_ptr = filename;
+      g_filename_len = n;
+      return err_com_unsuname;
+    }
+    n++;
+  }
+
+  if (n >= 4096u) {
+    g_filename_ptr = "<elided>";
+    g_filename_len = 8u;
+    return err_com_namelong;
+  }
+  g_filename_ptr = filename;
+  g_filename_len = n;
+
+  int fd = open(g_filename_ptr, O_RDONLY, 0);
+  if (fd < 0) {
+    return strerror(errno);
+  }
+  error_message_t ret = process_fd(fd);
+  close(fd);
+  return ret;
+}
+
+static error_message_t  //
+process_flag(const char* arg) {
+  g_filename_ptr = "<command_line>";
+  g_filename_len = 14u;
+
+  if (arg[0] == '-') {
+    arg++;
+    if (arg[0] == '-') {
+      arg++;
+    }
+  }
+
+  if (!strcmp(arg, "?") || !strcmp(arg, "help")) {
+    fprintf(stderr, "Usage: %s *.c foo/bar/*.java\n", g_progname_ptr);
+    return NULL;
+  }
+
+  return err_com_unsuflag;
+}
+
+static int  //
+print_error_message(error_message_t err) {
+  if (err == NULL) {
+    return 0;
+  }
+
+  static char line_number_buffer[32];
+  int lnb_len = snprintf(line_number_buffer, sizeof(line_number_buffer),
+                         ":%" PRIu32 " ", g_line_number);
+
+  static const int stderr_fd = 2;
+  write(stderr_fd, g_filename_ptr, g_filename_len);
+  write(stderr_fd, line_number_buffer, lnb_len);
+  write(stderr_fd, err, strlen(err));
+  write(stderr_fd, "\n", 1);
+  return 1;
+}
+
+int  //
+main(int argc, char** argv) {
+  g_progname_ptr = (argc > 0) ? argv[0] : "<program>";
+  process_flag("-color=auto");
+
+  if (argc <= 1) {
+    g_filename_ptr = "<stdin>";
+    g_filename_len = 7u;
+    static const int stdin_fd = 0;
+    int ret = print_error_message(process_fd(stdin_fd));
+    if (ret != 0) {
+      return ret;
+    }
+  }
+
+  for (int i = 1; i < argc; i++) {
+    const char* arg = argv[i];
+    error_message_t err =
+        (arg[0] == '-') ? process_flag(arg) : process_file(arg);
+    int ret = print_error_message(err);
+    if (ret != 0) {
+      return ret;
+    }
+  }
+
+  return 0;
+}
