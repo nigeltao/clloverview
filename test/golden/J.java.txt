@@ -1,0 +1,13 @@
+com.example.util.J      = "test/golden/J.java:3";
+com.example.util.J.add  = "test/golden/J.java:4";
+com.example.util.J.subtract     = "test/golden/J.java:8";
+com.example.util.J.toString     = "test/golden/J.java:13";
+com.example.util.J.here = "test/golden/J.java:17";
+com.example.util.J.fields       = "test/golden/J.java:18";
+com.example.util.J.MiddleClass  = "test/golden/J.java:20";
+com.example.util.J.MiddleClass.m        = "test/golden/J.java:23";
+com.example.util.J.MiddleClass.InnerClass       = "test/golden/J.java:25";
+com.example.util.J.MiddleClass.InnerClass.i     = "test/golden/J.java:26";
+com.example.util.J.MiddleClass.InnerClass.toString      = "test/golden/J.java:29";
+com.example.util.J.even = "test/golden/J.java:35";
+com.example.util.J.moreFields   = "test/golden/J.java:36";

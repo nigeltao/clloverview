@@ -1,0 +1,6 @@
+SampleFileScopedNamespace.SampleClass   = "test/golden/Namespace.cs:8";
+SampleFileScopedNamespace.ISampleInterface      = "test/golden/Namespace.cs:10";
+SampleFileScopedNamespace.SampleEnum    = "test/golden/Namespace.cs:14";
+SampleFileScopedNamespace.SampleEnum.a  = "test/golden/Namespace.cs:14";
+SampleFileScopedNamespace.SampleEnum.b  = "test/golden/Namespace.cs:14";
+SampleFileScopedNamespace.SampleDelegate        = "test/golden/Namespace.cs:16";

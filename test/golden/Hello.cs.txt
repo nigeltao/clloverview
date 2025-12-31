@@ -1,0 +1,2 @@
+HelloWorld.Hello        = "test/golden/Hello.cs:3";
+HelloWorld.Hello.Main   = "test/golden/Hello.cs:4";

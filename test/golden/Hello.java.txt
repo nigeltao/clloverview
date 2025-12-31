@@ -1,0 +1,2 @@
+HelloWorld      = "test/golden/Hello.java:1";
+HelloWorld.main = "test/golden/Hello.java:2";

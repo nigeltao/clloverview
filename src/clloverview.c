@@ -35,16 +35,28 @@
 
 // --------
 
-#define DEBUG_DUMP_HASH_TABLE
-#define DEBUG_DUMP_STRINGS
-#define DEBUG_DUMP_TOKENS
+// Uncomment any or all of these lines to dump debug information to stderr.
+
+// #define DEBUG_DUMP_HASH_TABLE
+// #define DEBUG_DUMP_STRINGS
+// #define DEBUG_DUMP_TOKENS
 
 // --------
 
 typedef const char* error_message_t;
 
+#define TRY(expr)                   \
+  do {                              \
+    error_message_t try_err = expr; \
+    if (try_err != NULL) {          \
+      return try_err;               \
+    }                               \
+  } while (0)
+
 // clang-format off
 
+static error_message_t err_ana_toomancb = "analyze: too many { curly brackets";
+static error_message_t err_ana_unbalacb = "analyze: unbalanced } curly bracket";
 static error_message_t err_com_namelong = "command line: input filename is too long";
 static error_message_t err_com_unsuflag = "command line: unsupported flag";
 static error_message_t err_com_unsuname = "command line: unsupported input filename";
@@ -53,6 +65,7 @@ static error_message_t err_int_endoffil = "internal: end of file";
 static error_message_t err_tok_backswnt = "tokenize: backslash was not terminated";
 static error_message_t err_tok_itlbytes = "tokenize: input is too large (in terms of bytes)";
 static error_message_t err_tok_itllines = "tokenize: input is too large (in terms of lines)";
+static error_message_t err_tok_itlnestd = "tokenize: input is too large (in terms of nesting depth)";
 static error_message_t err_tok_itltoken = "tokenize: input is too large (in terms of tokens)";
 static error_message_t err_tok_itluniqs = "tokenize: input is too large (in terms of unique strings)";
 static error_message_t err_tok_nulbytee = "tokenize: NUL byte encountered";
@@ -96,6 +109,11 @@ static const uint8_t alpha_numeric_lut[256] = {
 };
 
 // --------
+
+static inline uint32_t  //
+min_u32(uint32_t a, uint32_t b) {
+  return (a < b) ? a : b;
+}
 
 static inline uint16_t  //
 peek_u16le(const void* ptr) {
@@ -152,6 +170,16 @@ make_one_byte_punctuation_token(char c) {
   return ((uint32_t)(0x7F & c)) | 0x80200000u;
 }
 
+static bool  //
+token_is_namey(token_t t) {
+  return (t >> 30) == 1u;
+}
+
+static uint32_t  //
+token_length(token_t t) {
+  return 0x1FFu & (t >> 21);
+}
+
 // clang-format off
 
 #define HIGH_11_BITS_MASK   0xFFE00000u
@@ -191,6 +219,9 @@ typedef uint64_t line_number_and_token_t;
 // Global variables, named g_foobar or n_foobar. n_foobar is g_foobar's length
 // (the number of g_foobar elements used).
 
+static const char* g_color_code0 = NULL;
+static const char* g_color_code1 = NULL;
+
 static const char* g_progname_ptr = NULL;
 static const char* g_filename_ptr = NULL;
 static size_t g_filename_len = 0u;
@@ -206,6 +237,38 @@ static uint32_t n_hash_table = 0u;
 static uint32_t n_lnats = 0u;
 static uint32_t n_string_contents = 0u;
 
+static bool g_has_preprocess_directive = false;
+
+#define G_PREFIX_MARKS_SIZE 64
+static struct {
+  uint32_t n_marks;
+  uint32_t n_array;
+  uint16_t marks[G_PREFIX_MARKS_SIZE];
+  char array[4096];
+} g_prefix = {0};
+/// The "foo.bar." in the output line `foo.bar.qux = "d/e/filename.c:12";`.
+///
+/// g_prefix.array holds the NUL-terminated string and in this "foo.bar."
+/// example, n_array is 8, the string's length (excluding the NUL byte).
+/// n_marks is 2, the number of dots in the string. There are two marks.
+/// g_prefix.marks[0] is 0, the offset of the 'f', and g_prefix.marks[1] is 4,
+/// the offset of the 'b'.
+
+static token_t g_token_for_char = 0u;
+static token_t g_token_for_class = 0u;
+static token_t g_token_for_default = 0u;
+static token_t g_token_for_define = 0u;
+static token_t g_token_for_enum = 0u;
+static token_t g_token_for_import = 0u;
+static token_t g_token_for_int = 0u;
+static token_t g_token_for_interface = 0u;
+static token_t g_token_for_namespace = 0u;
+static token_t g_token_for_package = 0u;
+static token_t g_token_for_struct = 0u;
+static token_t g_token_for_undef = 0u;
+static token_t g_token_for_using = 0u;
+static token_t g_token_for_void = 0u;
+
 #define G_HASH_TABLE_SIZE 262144
 static uint32_t g_hash_table[G_HASH_TABLE_SIZE] = {0};
 /// A hash map from alpha-numeric strings (using the Jenkins hash function with
@@ -216,6 +279,8 @@ static uint32_t g_hash_table[G_HASH_TABLE_SIZE] = {0};
 #define G_LNATS_SIZE 1048576
 static line_number_and_token_t g_lnats[G_LNATS_SIZE] = {0};
 /// 8 MiB = 1 Mi elements × 8 bytes per element.
+
+#define TOKEN_AT(l) ((token_t)(g_lnats[l]))
 
 static char g_string_contents[2097152] = {0};
 /// 2 MiB. Offsets into this array fit into 21 bits.
@@ -232,6 +297,12 @@ reset_global_tokenizer_state(void) {
   n_hash_table = 0u;
   n_lnats = 0u;
   n_string_contents = 0u;
+
+  g_has_preprocess_directive = false;
+
+  g_prefix.n_marks = 0;
+  g_prefix.n_array = 0;
+  g_prefix.array[0] = 0;
 }
 
 // --------
@@ -273,7 +344,7 @@ internalize(const char* s_ptr, size_t s_len, bool namey) {
   uint32_t h = jenkins(s_ptr, s_len) & hash_mask;
   for (;; h = (h + 1) & hash_mask) {
     uint32_t v = g_hash_table[h];
-    if (v == 0) {
+    if (v == 0u) {
       break;
     } else if ((v & HIGH_11_BITS_MASK) != high_bits) {
       continue;
@@ -304,6 +375,24 @@ internalize(const char* s_ptr, size_t s_len, bool namey) {
   n_string_contents += 1u;
 
   return NULL;
+}
+
+static void  //
+internalize_well_known_names(void) {
+  g_token_for_char = INTERNALIZE_NAME("char");
+  g_token_for_class = INTERNALIZE_NAME("class");
+  g_token_for_default = INTERNALIZE_NAME("default");
+  g_token_for_define = INTERNALIZE_NAME("define");
+  g_token_for_enum = INTERNALIZE_NAME("enum");
+  g_token_for_import = INTERNALIZE_NAME("import");
+  g_token_for_int = INTERNALIZE_NAME("int");
+  g_token_for_interface = INTERNALIZE_NAME("interface");
+  g_token_for_namespace = INTERNALIZE_NAME("namespace");
+  g_token_for_package = INTERNALIZE_NAME("package");
+  g_token_for_struct = INTERNALIZE_NAME("struct");
+  g_token_for_undef = INTERNALIZE_NAME("undef");
+  g_token_for_using = INTERNALIZE_NAME("using");
+  g_token_for_void = INTERNALIZE_NAME("void");
 }
 
 static const char*  //
@@ -549,6 +638,7 @@ tokenize() {
   /// Populates the g_lnats array and sets n_lnats.
 
   reset_global_tokenizer_state();
+  internalize_well_known_names();
 
 #ifdef DEBUG_DUMP_TOKENS
   fprintf(stderr, "# index    line    token\n");
@@ -565,6 +655,7 @@ tokenize() {
     }
 
     if (g_token == TOKEN_FOR_U0023_NUMBER_SIGN) {
+      g_has_preprocess_directive = true;
       return "TODO: preprocessor support";
     }
 
@@ -583,7 +674,7 @@ tokenize() {
 #ifdef DEBUG_DUMP_HASH_TABLE
   for (uint32_t h = 0; h < G_HASH_TABLE_SIZE; h++) {
     uint32_t v = g_hash_table[h];
-    if (v == 0) {
+    if (v == 0u) {
       continue;
     }
     char* ptr = &g_string_contents[v & LOW_21_BITS_MASK];
@@ -617,6 +708,318 @@ tokenize() {
 
 // --------
 
+static void  //
+prefix_pop(void) {
+  /// Pops "bar." off the prefix stack.
+
+  if (g_prefix.n_marks > 0u) {
+    g_prefix.n_marks--;
+    g_prefix.n_array = g_prefix.marks[g_prefix.n_marks];
+    g_prefix.array[g_prefix.n_array] = 0;
+  }
+}
+
+static error_message_t  //
+prefix_push(token_t t) {
+  /// Pushes "bar." on the prefix stack, where "bar" is t's string form.
+
+  if (!t) {
+    return err_int_badargum;
+  } else if ((g_prefix.n_marks + 1u) >= G_PREFIX_MARKS_SIZE) {
+    return err_tok_itlnestd;
+  }
+
+  uint32_t capacity = ((uint32_t)(sizeof(g_prefix.array))) - g_prefix.n_array;
+  if (capacity < 2u) {
+    return err_tok_itlnestd;
+  }
+  capacity -= 2u;  // For the trailng ".\x00".
+
+  uint32_t n = token_length(t);
+  if (n == 0u) {
+    return err_int_badargum;
+  } else if (n > capacity) {
+    return err_tok_itlnestd;
+  }
+
+  g_prefix.marks[g_prefix.n_marks] = ((uint16_t)(g_prefix.n_array));
+  g_prefix.n_marks++;
+
+  char* dst = &g_prefix.array[g_prefix.n_array];
+  memcpy(dst, token_as_cstring(t), n);
+  dst += n;
+  *dst++ = '.';
+  *dst++ = 0;
+  g_prefix.n_array += n + 1u;
+  return NULL;
+}
+
+// --------
+
+static void  //
+emit_one(uint32_t l) {
+  /// Prints one output line, `foo.bar.qux = "d/e/filename.c:12";`.
+  ///
+  /// The "foo.bar." part comes from g_prefix. The "qux" and "12" parts come
+  /// from g_lnats[l]. The "d/e/filename.c" is g_filename_ptr.
+
+  static const char* eight_spaces_etc = "        = \"";
+
+  if (l >= n_lnats) {
+    return;
+  }
+  line_number_and_token_t lnat = g_lnats[l];
+  uint32_t line_number = ((uint32_t)(lnat >> 32));
+  token_t token = ((token_t)(lnat));
+  uint32_t n = g_prefix.n_array + token_length(token);
+  printf("%s%s%s%s%s%s:%" PRIu32 "\";\n",     //
+         g_color_code0 ? g_color_code0 : "",  //
+         g_prefix.array,                      //
+         token_as_cstring(token),             //
+         g_color_code1 ? g_color_code1 : "",  //
+         &eight_spaces_etc[n & 7u],           //
+         g_filename_ptr,                      //
+         line_number);
+}
+
+// --------
+
+static uint32_t  //
+skip_brackets(uint32_t l0, uint32_t l1) {
+  /// Returns the smallest l, in the range (l0 + 1) ..= l1, such that the token
+  /// range (l0 - 1) .. l forms a balance (the same number of left and right
+  /// brackets) of round / square / curly brackets.
+  ///
+  /// The token just seen, at (l0 - 1), is assumed to be a left-bracket.
+  ///
+  /// If no such l exists, it returns l1.
+
+  uint32_t bracket_depth = 1u;
+  for (uint32_t l = l0; l < l1;) {
+    token_t t = TOKEN_AT(l++);
+    switch (t) {
+      case TOKEN_FOR_U0028_LEFT_PARENTHESIS:
+      case TOKEN_FOR_U005B_LEFT_SQUARE_BRACKET:
+      case TOKEN_FOR_U007B_LEFT_CURLY_BRACKET:
+        bracket_depth++;
+        break;
+
+      case TOKEN_FOR_U0029_RIGHT_PARENTHESIS:
+      case TOKEN_FOR_U005D_RIGHT_SQUARE_BRACKET:
+      case TOKEN_FOR_U007D_RIGHT_CURLY_BRACKET:
+        bracket_depth--;
+        if (bracket_depth == 0u) {
+          return l;
+        }
+        break;
+    }
+  }
+  return l1;
+}
+
+static uint32_t  //
+skip_past_semicolon(uint32_t l0, uint32_t l1) {
+  /// Returns the smallest l, in the range (l0 + 1) ..= l1, such that the token
+  /// at (l - 1) is a semi-colon and is also at the same "curly-bracket depth"
+  /// as the token at l0.
+  ///
+  /// If no such l exists, it returns l1.
+
+  uint32_t bracket_depth = 0u;
+  for (uint32_t l = l0; l < l1;) {
+    token_t t = TOKEN_AT(l++);
+    if (t == TOKEN_FOR_U007B_LEFT_CURLY_BRACKET) {
+      bracket_depth++;
+    } else if ((t == TOKEN_FOR_U007D_RIGHT_CURLY_BRACKET) &&
+               (bracket_depth > 0u)) {
+      bracket_depth--;
+    } else if ((t == TOKEN_FOR_U003B_SEMICOLON) && (bracket_depth == 0u)) {
+      return l;
+    }
+  }
+  return l1;
+}
+
+// --------
+
+static error_message_t  //
+analyze_c(void) {
+  return "TODO: analyze_c";
+}
+
+// --------
+
+static error_message_t  //
+analyze_csharp_java(void) {
+  if (n_lnats < 2u) {
+    return NULL;
+  }
+
+  uint32_t l = 0u;
+  if (TOKEN_AT(0) == g_token_for_package) {
+    l++;
+    while (l < (n_lnats - 1u)) {
+      token_t t0 = TOKEN_AT(l++);
+      if (token_is_namey(t0)) {
+        TRY(prefix_push(t0));
+      }
+      token_t t1 = TOKEN_AT(l++);
+      if (t1 == TOKEN_FOR_U003B_SEMICOLON) {
+        break;
+      }
+    }
+  }
+
+  bool is_enumerating = false;
+  uint32_t bracket_depth = 0u;
+  while (l < n_lnats) {
+    token_t t = TOKEN_AT(l++);
+
+    if (t == TOKEN_FOR_U0028_LEFT_PARENTHESIS) {
+      if ((l >= 2u) && !is_enumerating) {
+        emit_one(l - 2u);
+      }
+      l = skip_brackets(l, n_lnats);
+      if (l >= n_lnats) {
+        break;
+      } else if (TOKEN_AT(l) == TOKEN_FOR_U003B_SEMICOLON) {
+        l++;
+        is_enumerating = false;
+      } else if (TOKEN_AT(l) == g_token_for_default) {
+        l = skip_past_semicolon(l + 1, n_lnats);
+        is_enumerating = false;
+      }
+
+    } else if ((t == TOKEN_FOR_U005B_LEFT_SQUARE_BRACKET) ||
+               (t == TOKEN_FOR_U007B_LEFT_CURLY_BRACKET)) {
+      l = skip_brackets(l, n_lnats);
+
+    } else if ((t == TOKEN_FOR_U003B_SEMICOLON) ||
+               (t == TOKEN_FOR_U003D_EQUALS_SIGN)) {
+      if (l >= 2u) {
+        emit_one(l - 2u);
+      }
+      l = skip_past_semicolon(l - 1u, n_lnats);
+      is_enumerating = false;
+
+    } else if (t == TOKEN_FOR_U007D_RIGHT_CURLY_BRACKET) {
+      if (bracket_depth <= 0u) {
+        return err_ana_unbalacb;
+      }
+      bracket_depth--;
+      prefix_pop();
+      is_enumerating = false;
+
+    } else if (t == TOKEN_FOR_U0040_COMMERCIAL_AT) {
+      if (l < n_lnats) {
+        if (TOKEN_AT(l) == g_token_for_interface) {
+          continue;
+        }
+        l++;
+      }
+      if ((l < n_lnats) && (TOKEN_AT(l) == TOKEN_FOR_U0028_LEFT_PARENTHESIS)) {
+        l = skip_brackets(l + 1u, n_lnats);
+      }
+
+    } else if ((t == g_token_for_import) ||  //
+               (t == g_token_for_using)) {
+      l = skip_past_semicolon(l + 1u, n_lnats);
+      is_enumerating = false;
+
+    } else if ((t == g_token_for_class) ||      //
+               (t == g_token_for_enum) ||       //
+               (t == g_token_for_interface) ||  //
+               (t == g_token_for_namespace)) {
+      if (l >= n_lnats) {
+        return NULL;
+      }
+      is_enumerating = (t == g_token_for_enum);
+
+      if (t != g_token_for_namespace) {
+        emit_one(l);
+      }
+      TRY(prefix_push(TOKEN_AT(l++)));
+      if ((t == g_token_for_namespace) &&  //
+          (l < n_lnats) && (TOKEN_AT(l) == TOKEN_FOR_U003B_SEMICOLON)) {
+        l++;
+        continue;
+      }
+
+      if (bracket_depth >= 0xFFFFu) {
+        return err_ana_toomancb;
+      }
+      bracket_depth++;
+
+      while (true) {
+        if (l >= n_lnats) {
+          return NULL;
+        } else if (TOKEN_AT(l++) == TOKEN_FOR_U007B_LEFT_CURLY_BRACKET) {
+          break;
+        }
+      }
+
+    } else if (is_enumerating && token_is_namey(t)) {
+      emit_one(l - 1u);
+    }
+  }
+
+  return NULL;
+}
+
+// --------
+
+static error_message_t  //
+analyze_go(void) {
+  return "TODO: analyze_go";
+}
+
+// --------
+
+typedef error_message_t (*analyzer)(void);
+
+static analyzer  //
+guess_language_family(void) {
+  if (g_has_preprocess_directive) {
+    return &analyze_c;
+  }
+
+  token_t t0 = (n_lnats > 0u) ? TOKEN_AT(0) : 0u;
+  token_t t1 = (n_lnats > 1u) ? TOKEN_AT(1) : 0u;
+  token_t t2 = (n_lnats > 2u) ? TOKEN_AT(2) : 0u;
+
+  if (t0 == g_token_for_package) {
+    if (!token_is_namey(t1)) {
+      return NULL;
+    } else if ((t2 == TOKEN_FOR_U002E_FULL_STOP) ||
+               (t2 == TOKEN_FOR_U003B_SEMICOLON)) {
+      return &analyze_csharp_java;
+    }
+    return &analyze_go;
+
+  } else if ((t0 == g_token_for_using) ||      //
+             (t0 == g_token_for_namespace) ||  //
+             (t0 == g_token_for_class) ||      //
+             (t0 == g_token_for_enum) ||       //
+             (t0 == g_token_for_interface) ||  //
+             (t1 == g_token_for_class) ||      //
+             (t1 == g_token_for_enum) ||       //
+             (t1 == g_token_for_interface)) {
+    return &analyze_csharp_java;
+  }
+
+  uint32_t n = min_u32(n_lnats, 64u);
+  for (uint32_t l = 0u; l < n;) {
+    token_t t = TOKEN_AT(l++);
+    if ((t == g_token_for_char) ||  //
+        (t == g_token_for_int) ||   //
+        (t == g_token_for_void)) {
+      return &analyze_c;
+    }
+  }
+
+  return NULL;
+}
+
 static bool  //
 looks_like_bash_python_etc(void) {
   const char* p = g_input_ptr;
@@ -643,8 +1046,11 @@ process_file_contents(const char* data_ptr, const size_t data_len) {
   if (err != NULL) {
     return err;
   }
-  // TODO: analyze the tokens.
-  return NULL;
+  analyzer a = guess_language_family();
+  if (a == NULL) {
+    return NULL;
+  }
+  return (*a)();
 }
 
 static error_message_t  //
@@ -733,7 +1139,28 @@ process_flag(const char* arg) {
   }
 
   if (!strcmp(arg, "?") || !strcmp(arg, "help")) {
-    fprintf(stderr, "Usage: %s *.c foo/bar/*.java\n", g_progname_ptr);
+    fprintf(stderr, "Usage: %s -color=auto|always|never *.c foo/bar/*.java\n",
+            g_progname_ptr);
+    return NULL;
+
+  } else if (!strncmp(arg, "color=", 6)) {
+    arg += 6;
+    bool on = false;
+
+    if (!strcmp(arg, "auto")) {
+      static const int stdout_fd = 1;
+      const char* term = getenv("TERM");
+      on = isatty(stdout_fd) && term && strcmp(term, "dumb");
+    } else if (!strcmp(arg, "always")) {
+      on = true;
+    } else if (!strcmp(arg, "never")) {
+      on = false;
+    } else {
+      return err_com_unsuflag;
+    }
+
+    g_color_code0 = on ? "\033[32m" : "";
+    g_color_code1 = on ? "\033[0m" : "";
     return NULL;
   }
 

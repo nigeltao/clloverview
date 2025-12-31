@@ -1,0 +1,8 @@
+com.servlets.Unfinished = "test/golden/Unfinished.java:13";
+com.servlets.Unfinished.Priority        = "test/golden/Unfinished.java:14";
+com.servlets.Unfinished.Priority.LOW    = "test/golden/Unfinished.java:14";
+com.servlets.Unfinished.Priority.MEDIUM = "test/golden/Unfinished.java:14";
+com.servlets.Unfinished.Priority.HIGH   = "test/golden/Unfinished.java:14";
+com.servlets.Unfinished.value   = "test/golden/Unfinished.java:16";
+com.servlets.Unfinished.owners  = "test/golden/Unfinished.java:17";
+com.servlets.Unfinished.priority        = "test/golden/Unfinished.java:18";

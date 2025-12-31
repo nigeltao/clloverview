@@ -2,3 +2,4 @@
 *.out
 *~
 /out
+/test/golden/*.failed.txt
