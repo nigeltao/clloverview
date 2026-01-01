@@ -171,6 +171,11 @@ make_one_byte_punctuation_token(char c) {
 }
 
 static bool  //
+token_is_indirect(token_t t) {
+  return (t >> 31) == 0u;
+}
+
+static bool  //
 token_is_namey(token_t t) {
   return (t >> 30) == 1u;
 }
@@ -256,17 +261,21 @@ static struct {
 
 static token_t g_token_for_char = 0u;
 static token_t g_token_for_class = 0u;
+static token_t g_token_for_const = 0u;
 static token_t g_token_for_default = 0u;
 static token_t g_token_for_define = 0u;
 static token_t g_token_for_enum = 0u;
+static token_t g_token_for_func = 0u;
 static token_t g_token_for_import = 0u;
 static token_t g_token_for_int = 0u;
 static token_t g_token_for_interface = 0u;
 static token_t g_token_for_namespace = 0u;
 static token_t g_token_for_package = 0u;
 static token_t g_token_for_struct = 0u;
+static token_t g_token_for_type = 0u;
 static token_t g_token_for_undef = 0u;
 static token_t g_token_for_using = 0u;
+static token_t g_token_for_var = 0u;
 static token_t g_token_for_void = 0u;
 
 #define G_HASH_TABLE_SIZE 262144
@@ -369,7 +378,7 @@ internalize(const char* s_ptr, size_t s_len, bool namey) {
   n_string_contents += 2u;
 
   memcpy(g_string_contents + n_string_contents, s_ptr, s_len);
-  n_string_contents += s_len;
+  n_string_contents += ((uint32_t)(s_len));
 
   g_string_contents[n_string_contents] = 0;
   n_string_contents += 1u;
@@ -381,17 +390,21 @@ static void  //
 internalize_well_known_names(void) {
   g_token_for_char = INTERNALIZE_NAME("char");
   g_token_for_class = INTERNALIZE_NAME("class");
+  g_token_for_const = INTERNALIZE_NAME("const");
   g_token_for_default = INTERNALIZE_NAME("default");
   g_token_for_define = INTERNALIZE_NAME("define");
   g_token_for_enum = INTERNALIZE_NAME("enum");
+  g_token_for_func = INTERNALIZE_NAME("func");
   g_token_for_import = INTERNALIZE_NAME("import");
   g_token_for_int = INTERNALIZE_NAME("int");
   g_token_for_interface = INTERNALIZE_NAME("interface");
   g_token_for_namespace = INTERNALIZE_NAME("namespace");
   g_token_for_package = INTERNALIZE_NAME("package");
   g_token_for_struct = INTERNALIZE_NAME("struct");
+  g_token_for_type = INTERNALIZE_NAME("type");
   g_token_for_undef = INTERNALIZE_NAME("undef");
   g_token_for_using = INTERNALIZE_NAME("using");
+  g_token_for_var = INTERNALIZE_NAME("var");
   g_token_for_void = INTERNALIZE_NAME("void");
 }
 
@@ -414,8 +427,8 @@ token_as_cstring(token_t t) {
     case 3:
       t &= LOW_21_BITS_MASK;
       // "¤", U+00B5 CURRENCY SIGN, in UTF-8 is 0xC2 0xA4.
-      buffer[0] = 0xC2;
-      buffer[1] = 0xA4;
+      buffer[0] = ((char)(0xC2));
+      buffer[1] = ((char)(0xA4));
       for (int i = 0; i < 6; i++) {
         buffer[7 - i] = hex_digits[t & 15u];
         t >>= 4;
@@ -660,8 +673,8 @@ tokenize() {
     }
 
 #ifdef DEBUG_DUMP_TOKENS
-    fprintf(stderr, "#%06u    %4u    0x%08X    %s\n", n_lnats, g_line_number,
-            g_token, token_as_cstring(g_token));
+    fprintf(stderr, "#%06" PRIu32 "    %4" PRIu32 "    0x%08" PRIX32 "    %s\n",
+            n_lnats, g_line_number, g_token, token_as_cstring(g_token));
 #endif
 
     if (n_lnats >= (sizeof(g_lnats) / sizeof(line_number_and_token_t))) {
@@ -782,6 +795,22 @@ emit_one(uint32_t l) {
          line_number);
 }
 
+static void  //
+emit_comma_separated_names(uint32_t l0, uint32_t l1) {
+  /// Emits the "x", "y" and "z" from the "x, y, z int = blah" that is the
+  /// token range l0 .. l1.
+
+  for (uint32_t l = l0; l < l1;) {
+    if (!token_is_namey(TOKEN_AT(l))) {
+      break;
+    }
+    emit_one(l++);
+    if ((l >= l1) || (TOKEN_AT(l++) != TOKEN_FOR_U002C_COMMA)) {
+      break;
+    }
+  }
+}
+
 // --------
 
 static uint32_t  //
@@ -834,6 +863,70 @@ skip_past_semicolon(uint32_t l0, uint32_t l1) {
                (bracket_depth > 0u)) {
       bracket_depth--;
     } else if ((t == TOKEN_FOR_U003B_SEMICOLON) && (bracket_depth == 0u)) {
+      return l;
+    }
+  }
+  return l1;
+}
+
+static uint32_t  //
+skip_past_go_semicolon(uint32_t l0, uint32_t l1) {
+  /// Returns the smallest l, in the range (l0 + 1) ..= l1, such that the token
+  /// at (l - 1) is an explicit semi-colon, or there is an implicit semi-colon
+  /// between the tokens at (l - 1) and at l, and is also at the same
+  /// "curly-bracket depth" as the token at l0.
+  ///
+  /// If no such l exists, it returns l1.
+  ///
+  /// This is like skip_past_semicolon but, in Go, semi-colons can be implicit:
+  /// https://go.dev/ref/spec#Semicolons
+
+  for (uint32_t l = l0; l < l1;) {
+    line_number_and_token_t lnat0 = g_lnats[l++];
+    uint32_t line0 = ((uint32_t)(lnat0 >> 32));
+    token_t token0 = ((token_t)(lnat0));
+
+    if (l >= l1) {
+      break;
+
+    } else if (token0 == TOKEN_FOR_U003B_SEMICOLON) {
+      return l;
+
+    } else if ((token0 == TOKEN_FOR_U0029_RIGHT_PARENTHESIS) ||
+               (token0 == TOKEN_FOR_U007D_RIGHT_CURLY_BRACKET)) {
+      return l - 1;
+
+    } else if ((token0 == TOKEN_FOR_U0028_LEFT_PARENTHESIS) ||
+               (token0 == TOKEN_FOR_U005B_LEFT_SQUARE_BRACKET) ||
+               (token0 == TOKEN_FOR_U007B_LEFT_CURLY_BRACKET)) {
+      l = skip_brackets(l, l1);
+      if (l >= l1) {
+        break;
+      }
+      lnat0 = g_lnats[l - 1u];
+      line0 = ((uint32_t)(lnat0 >> 32));
+      token0 = ((token_t)(lnat0));
+    }
+
+    line_number_and_token_t lnat1 = g_lnats[l];
+    uint32_t line1 = ((uint32_t)(lnat1 >> 32));
+    if (line0 == line1) {
+      continue;
+    }
+
+    switch (token0) {
+      case TOKEN_FOR_U0029_RIGHT_PARENTHESIS:
+      case TOKEN_FOR_U005D_RIGHT_SQUARE_BRACKET:
+      case TOKEN_FOR_U007D_RIGHT_CURLY_BRACKET:
+      case TOKEN_FOR_OPERATOR_MINUS_MINUS:
+      case TOKEN_FOR_OPERATOR_PLUS_PLUS:
+      case TOKEN_FOR_PLACEHOLDER_CHAR:
+      case TOKEN_FOR_PLACEHOLDER_FLOATING_POINT:
+      case TOKEN_FOR_PLACEHOLDER_STRING:
+        return l;
+    }
+
+    if (token_is_indirect(token0)) {
       return l;
     }
   }
@@ -968,9 +1061,147 @@ analyze_csharp_java(void) {
 
 // --------
 
+static token_t  //
+parse_go_receiver_type(uint32_t l0, uint32_t l1) {
+  /// Returns the "T" out of "T", "x T", "x *T" for the token range l0 .. l1.
+
+  token_t ret = 0;
+  int num_names_seen = 0;
+  for (uint32_t l = l0; l < l1;) {
+    token_t t = TOKEN_AT(l++);
+    if (!token_is_namey(t)) {
+      continue;
+    }
+    ret = t;
+    num_names_seen++;
+    if (num_names_seen == 2) {
+      break;
+    }
+  }
+  return ret;
+}
+
 static error_message_t  //
 analyze_go(void) {
-  return "TODO: analyze_go";
+  if (n_lnats < 2u) {
+    return NULL;
+  }
+  TRY(prefix_push(TOKEN_AT(1)));
+
+  for (uint32_t l = 2u; l < n_lnats;) {
+    token_t keyword = TOKEN_AT(l++);
+    if (l >= n_lnats) {
+      return NULL;
+    }
+
+    if (keyword == g_token_for_import) {
+      goto skip_to_next_top_level_declaration;
+
+    } else if (keyword == g_token_for_func) {
+      token_t recv_type = 0u;
+      token_t func_name = TOKEN_AT(l);
+      if (func_name == TOKEN_FOR_U0028_LEFT_PARENTHESIS) {
+        uint32_t l0 = l + 1u;
+        l = skip_brackets(l0, n_lnats);
+        if (l >= n_lnats) {
+          return NULL;
+        }
+        recv_type = parse_go_receiver_type(l0, l);
+        if (!token_is_namey(recv_type)) {
+          return NULL;
+        }
+        func_name = TOKEN_AT(l);
+      }
+      if (!token_is_namey(func_name)) {
+        return NULL;
+      }
+
+      if (recv_type != 0u) {
+        TRY(prefix_push(recv_type));
+      }
+      emit_one(l++);
+      if (recv_type != 0u) {
+        prefix_pop();
+      }
+
+      goto skip_to_next_top_level_declaration;
+    }
+
+    bool parenthesized_keyword =
+        TOKEN_AT(l) == TOKEN_FOR_U0028_LEFT_PARENTHESIS;
+    if (parenthesized_keyword) {
+      l++;
+      if (l >= n_lnats) {
+        return NULL;
+      }
+    }
+
+    if ((keyword == g_token_for_const) ||  //
+        (keyword == g_token_for_var)) {
+      while (true) {
+        uint32_t l1 = skip_past_go_semicolon(l, n_lnats);
+        emit_comma_separated_names(l, l1);
+        l = l1;
+
+        if (!parenthesized_keyword) {
+          goto skip_to_next_top_level_declaration;
+        } else if (l >= n_lnats) {
+          return NULL;
+        } else if (TOKEN_AT(l) == TOKEN_FOR_U0029_RIGHT_PARENTHESIS) {
+          l++;
+          goto skip_to_next_top_level_declaration;
+        }
+      }
+
+    } else if (keyword == g_token_for_type) {
+      token_t type_name = TOKEN_AT(l);
+      if (!token_is_namey(type_name)) {
+        return NULL;
+      }
+      emit_one(l++);
+      while ((l < n_lnats) &&
+             (TOKEN_AT(l) == TOKEN_FOR_U005B_LEFT_SQUARE_BRACKET)) {
+        l = skip_brackets(l + 1u, n_lnats);
+      }
+      if (((l + 1u) < n_lnats) &&                      //
+          (TOKEN_AT(l + 0u) == g_token_for_struct) &&  //
+          (TOKEN_AT(l + 1u) == TOKEN_FOR_U007B_LEFT_CURLY_BRACKET)) {
+        l += 2u;
+        TRY(prefix_push(type_name));
+        while (true) {
+          uint32_t l1 = skip_past_go_semicolon(l, n_lnats);
+          emit_comma_separated_names(l, l1);
+          l = l1;
+
+          if (l >= n_lnats) {
+            return NULL;
+          } else if (TOKEN_AT(l) == TOKEN_FOR_U007D_RIGHT_CURLY_BRACKET) {
+            l++;
+            break;
+          }
+        }
+        prefix_pop();
+      }
+
+    } else {
+      return NULL;
+    }
+
+  skip_to_next_top_level_declaration:
+    while (l < n_lnats) {
+      token_t t = TOKEN_AT(l);
+      if ((t == g_token_for_const) ||   //
+          (t == g_token_for_func) ||    //
+          (t == g_token_for_import) ||  //
+          (t == g_token_for_type) ||    //
+          (t == g_token_for_var)) {
+        break;
+      }
+      l++;
+    }
+  }
+
+  return NULL;
 }
 
 // --------
@@ -1042,10 +1273,7 @@ process_file_contents(const char* data_ptr, const size_t data_len) {
   if (looks_like_bash_python_etc()) {
     return NULL;
   }
-  error_message_t err = tokenize();
-  if (err != NULL) {
-    return err;
-  }
+  TRY(tokenize());
   analyzer a = guess_language_family();
   if (a == NULL) {
     return NULL;
@@ -1067,7 +1295,7 @@ process_fd(int fd) {
       return err_tok_itlbytes;
     }
 
-    const size_t data_len = z.st_size;
+    const size_t data_len = ((size_t)(z.st_size));
     char* const data_ptr = mmap(NULL, data_len, PROT_READ, MAP_SHARED, fd, 0);
     if (data_ptr == MAP_FAILED) {
       break;
@@ -1176,10 +1404,13 @@ print_error_message(error_message_t err) {
   static char line_number_buffer[32];
   int lnb_len = snprintf(line_number_buffer, sizeof(line_number_buffer),
                          ":%" PRIu32 " ", g_line_number);
+  if (lnb_len < 0) {
+    return 1;
+  }
 
   static const int stderr_fd = 2;
   write(stderr_fd, g_filename_ptr, g_filename_len);
-  write(stderr_fd, line_number_buffer, lnb_len);
+  write(stderr_fd, line_number_buffer, ((size_t)(lnb_len)));
   write(stderr_fd, err, strlen(err));
   write(stderr_fd, "\n", 1);
   return 1;
