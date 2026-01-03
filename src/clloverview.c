@@ -37,6 +37,7 @@
 
 // Uncomment any or all of these lines to dump debug information to stderr.
 
+// #define DEBUG_DUMP_DEFINES
 // #define DEBUG_DUMP_HASH_TABLE
 // #define DEBUG_DUMP_STRINGS
 // #define DEBUG_DUMP_TOKENS
@@ -62,6 +63,12 @@ static error_message_t err_com_unsuflag = "command line: unsupported flag";
 static error_message_t err_com_unsuname = "command line: unsupported input filename";
 static error_message_t err_int_badargum = "internal: bad argument";
 static error_message_t err_int_endoffil = "internal: end of file";
+static error_message_t err_pre_baddirec = "preprocess: bad directive";
+static error_message_t err_pre_badmacde = "preprocess: bad macro definition";
+static error_message_t err_pre_badmacun = "preprocess: bad macro undefinition";
+static error_message_t err_pre_linewsnt = "preprocess: line was not terminated";
+static error_message_t err_pre_macroatl = "preprocess: macros are too large";
+static error_message_t err_pre_misdirec = "preprocess: missing directive";
 static error_message_t err_tok_backswnt = "tokenize: backslash was not terminated";
 static error_message_t err_tok_itlbytes = "tokenize: input is too large (in terms of bytes)";
 static error_message_t err_tok_itllines = "tokenize: input is too large (in terms of lines)";
@@ -165,6 +172,14 @@ typedef uint32_t token_t;
 /// 0xFFFFFFFFu is also an invalid token, because a macro argument token's
 /// length must be 8, e.g. "¤234567".
 
+#define HIGH_11_BITS_MASK 0xFFE00000u
+#define LOW_21_BITS_MASK 0x001FFFFFu
+
+static token_t  //
+make_macro_argument_token(uint32_t i) {
+  return ((uint32_t)(LOW_21_BITS_MASK & i)) | 0xC1000000u;
+}
+
 static token_t  //
 make_one_byte_punctuation_token(char c) {
   return ((uint32_t)(0x7F & c)) | 0x80200000u;
@@ -186,9 +201,6 @@ token_length(token_t t) {
 }
 
 // clang-format off
-
-#define HIGH_11_BITS_MASK   0xFFE00000u
-#define LOW_21_BITS_MASK    0x001FFFFFu
 
 #define TOKEN_FOR_U000A_LINE_FEED               0x8020000Au
 #define TOKEN_FOR_U0023_NUMBER_SIGN             0x80200023u
@@ -238,6 +250,7 @@ static token_t g_token = 0u;
 static uint32_t g_line_number = 0u;
 #define MAX_EXCL_LINE_NUMBER 0x80000000u
 
+static uint32_t n_macro_definitions = 0u;
 static uint32_t n_hash_table = 0u;
 static uint32_t n_lnats = 0u;
 static uint32_t n_string_contents = 0u;
@@ -278,6 +291,27 @@ static token_t g_token_for_using = 0u;
 static token_t g_token_for_var = 0u;
 static token_t g_token_for_void = 0u;
 
+#define G_MACRO_DEFINITIONS_SIZE 65536
+static token_t g_macro_definitions[G_MACRO_DEFINITIONS_SIZE] = {0};
+/// g_macro_definitions[0] is always 0u (meaning an undefined macro).
+///
+/// g_macro_definitions[1] and g_macro_definitions[2] are always 0xFFFFFFFFu
+/// and 0u (meaning a defined-but-empty macro).
+///
+/// Then follows a series of 0u-terminated token-strings. Each token-string
+/// begins with the bitwise-not of the number of arguments in the macro. For
+/// example, after
+///
+/// #define MY_MACRO(a, b) a + k * b
+///
+/// Then the token for "MY_MACRO" would index into g_string_contents, pointing
+/// to a char-string that starts with a u16le index into g_macro_definitions,
+/// pointing to a token-string. That token-string would start with 0xFFFFFFFDu,
+/// meaning a macro with two arguments, followed by 1st_macro_argument, plus,
+/// k, star, 2nd_macro_argument, 0.
+///
+/// 256 KiB = 64 Ki elements × 4 bytes per element.
+
 #define G_HASH_TABLE_SIZE 262144
 static uint32_t g_hash_table[G_HASH_TABLE_SIZE] = {0};
 /// A hash map from alpha-numeric strings (using the Jenkins hash function with
@@ -303,6 +337,7 @@ reset_global_tokenizer_state(void) {
   g_token = 0u;
   g_line_number = 1u;
 
+  n_macro_definitions = 3u;
   n_hash_table = 0u;
   n_lnats = 0u;
   n_string_contents = 0u;
@@ -312,6 +347,10 @@ reset_global_tokenizer_state(void) {
   g_prefix.n_marks = 0;
   g_prefix.n_array = 0;
   g_prefix.array[0] = 0;
+
+  g_macro_definitions[0] = 0u;
+  g_macro_definitions[1] = 0xFFFFFFFFu;
+  g_macro_definitions[2] = 0u;
 }
 
 // --------
@@ -646,6 +685,217 @@ restart_next_token:
   return NULL;
 }
 
+// --------
+
+static token_t  //
+substitute_macro_argument_tokens(token_t t,
+                                 token_t* args_ptr,
+                                 uint32_t args_len) {
+  for (uint32_t i = 0u; i < args_len; i++) {
+    if (t == args_ptr[i]) {
+      return make_macro_argument_token(i);
+    }
+  }
+  return t;
+}
+
+static error_message_t  //
+preprocess_define(void) {
+  static const uint32_t args_size = 64u;
+  token_t args[64];
+  uint32_t num_args = 0u;
+
+  int state = 0;
+  uint32_t index = 0u;
+  token_t name = 0u;
+  uint32_t n = n_macro_definitions;
+
+  while (true) {
+    error_message_t err = next_token(true);
+    if (err == NULL) {
+      // No-op.
+    } else if (err != err_int_endoffil) {
+      return err;
+    } else {
+      return err_pre_linewsnt;
+    }
+
+    if (g_token == TOKEN_FOR_U000A_LINE_FEED) {
+      break;
+    }
+
+    switch (state) {
+      case 0:  // Initial state.
+        if (!token_is_namey(g_token)) {
+          return err_pre_badmacde;
+        } else if (n++ >= G_MACRO_DEFINITIONS_SIZE) {
+          return err_pre_macroatl;
+        }
+        index = n_macro_definitions;
+        name = g_token;
+        if ((g_input_ptr < g_input_end) && (*g_input_ptr == '(')) {
+          g_input_ptr++;
+          state = 1;
+          continue;
+        }
+        state = 4;
+        continue;
+
+      case 1:  // After the '(' introducing macro arguments.
+        if (g_token == TOKEN_FOR_U0029_RIGHT_PARENTHESIS) {
+          state = 4;
+          continue;
+        }
+        // fallthrough
+
+      case 2:  // Before a macro argument.
+        if (!token_is_namey(g_token)) {
+          return err_pre_badmacde;
+        } else if (num_args >= args_size) {
+          return err_pre_macroatl;
+        }
+        args[num_args++] = g_token;
+        state = 3;
+        continue;
+
+      case 3:  // After a macro argument.
+        if (g_token == TOKEN_FOR_U002C_COMMA) {
+          state = 2;
+          continue;
+        } else if (g_token == TOKEN_FOR_U0029_RIGHT_PARENTHESIS) {
+          state = 4;
+          continue;
+        }
+        return err_pre_badmacde;
+
+      case 4:  // After the ')' concluding macro arguments, if it even exists.
+        break;
+    }
+
+    if (n >= G_MACRO_DEFINITIONS_SIZE) {
+      return err_pre_macroatl;
+    }
+    g_macro_definitions[n++] =
+        substitute_macro_argument_tokens(g_token, args, num_args);
+  }
+
+  if (state != 4) {
+    return err_pre_badmacde;
+  } else if (n >= G_MACRO_DEFINITIONS_SIZE) {
+    return err_pre_macroatl;
+  } else if ((num_args == 0u) && (n == (index + 1u))) {
+    // All empty macros can point to the same token-string at index 1u.
+    index = 1u;
+  } else {
+    g_macro_definitions[index] = ~num_args;
+    g_macro_definitions[n++] = 0u;
+    n_macro_definitions = n;
+  }
+
+  uint32_t offset = LOW_21_BITS_MASK & name;
+  poke_u16le(g_string_contents + offset, ((uint16_t)(index)));
+
+#ifdef DEBUG_DUMP_DEFINES
+  fprintf(stderr,
+          "#define  0x%04" PRIX32 ":%02" PRIX32 " 0x%08" PRIX32 " ++ %s\n",
+          index, num_args, name, token_as_cstring(name));
+  for (uint32_t i = index + 1u;;) {
+    token_t t = g_macro_definitions[i++];
+    if (t == 0u) {
+      break;
+    }
+    fprintf(stderr, "                   0x%08" PRIX32 "    %s\n", t,
+            token_as_cstring(t));
+  }
+#endif
+
+  return NULL;
+}
+
+static error_message_t  //
+preprocess_undef(void) {
+  token_t name = 0u;
+
+  while (true) {
+    error_message_t err = next_token(true);
+    if (err == NULL) {
+      // No-op.
+    } else if (err != err_int_endoffil) {
+      return err;
+    } else {
+      return err_pre_linewsnt;
+    }
+
+    if (g_token == TOKEN_FOR_U000A_LINE_FEED) {
+      break;
+    }
+
+    if ((name != 0u) || !token_is_namey(g_token)) {
+      return err_pre_badmacun;
+    }
+    name = g_token;
+  }
+
+  if (name == 0u) {
+    return err_pre_badmacun;
+  }
+
+  uint32_t offset = LOW_21_BITS_MASK & name;
+  uint32_t index = peek_u16le(g_string_contents + offset);
+  poke_u16le(g_string_contents + offset, 0u);
+
+#ifdef DEBUG_DUMP_DEFINES
+  uint32_t num_args = (index != 0u) ? ~g_macro_definitions[index] : 0u;
+  fprintf(stderr,
+          "#undef   0x%04" PRIX32 ":%02" PRIX32 " 0x%08" PRIX32 " -- %s\n",
+          index, num_args, name, token_as_cstring(name));
+#else
+  (void)index;
+#endif
+
+  return NULL;
+}
+
+static error_message_t  //
+preprocess(void) {
+  error_message_t err = next_token(false);
+  if (err == NULL) {
+    // No-op.
+  } else if (err != err_int_endoffil) {
+    return err;
+  } else {
+    return err_pre_misdirec;
+  }
+
+  token_t directive = g_token;
+  if (!token_is_namey(directive)) {
+    return err_pre_baddirec;
+  } else if (directive == g_token_for_define) {
+    return preprocess_define();
+  } else if (directive == g_token_for_undef) {
+    return preprocess_undef();
+  }
+
+  while (true) {
+    err = next_token(true);
+    if (err == NULL) {
+      // No-op.
+    } else if (err != err_int_endoffil) {
+      return err;
+    } else {
+      return err_pre_linewsnt;
+    }
+
+    if (g_token == TOKEN_FOR_U000A_LINE_FEED) {
+      break;
+    }
+  }
+
+  return NULL;
+}
+
+// --------
+
 static error_message_t  //
 tokenize() {
   /// Populates the g_lnats array and sets n_lnats.
@@ -668,8 +918,9 @@ tokenize() {
     }
 
     if (g_token == TOKEN_FOR_U0023_NUMBER_SIGN) {
+      TRY(preprocess());
       g_has_preprocess_directive = true;
-      return "TODO: preprocessor support";
+      continue;
     }
 
 #ifdef DEBUG_DUMP_TOKENS
