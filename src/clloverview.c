@@ -1018,7 +1018,7 @@ prefix_push_string(const char* s_ptr, size_t s_len) {
 }
 
 static error_message_t  //
-prefix_push(token_t t) {
+prefix_push_token(token_t t) {
   /// Pushes "bar." on the prefix stack, where "bar" is t's string form.
 
   return prefix_push_string(token_as_cstring(t), token_length(t));
@@ -1030,7 +1030,7 @@ prefix_push_range(uint32_t l0, uint32_t l1) {
   /// range l0 .. l1.
 
   if ((l0 + 1u) == l1) {
-    return prefix_push(TOKEN_AT(l0));
+    return prefix_push_token(TOKEN_AT(l0));
   } else if ((l0 + 1u) > l1) {
     return err_int_badargum;
   }
@@ -1122,7 +1122,7 @@ emit_colon_colon_separated(uint32_t l0, uint32_t l1) {
     if (!token_is_namey(t0) || (t1 != TOKEN_FOR_OPERATOR_COLON_COLON)) {
       break;
     }
-    TRY(prefix_push(t0));
+    TRY(prefix_push_token(t0));
     num_push++;
   }
   emit_one(l);
@@ -1369,7 +1369,7 @@ analyze_c(void) {
     token_t class_name = TOKEN_AT(l);
     if (t != g_token_for_namespace) {
       emit_one(l++);
-      TRY(prefix_push(class_name));
+      TRY(prefix_push_token(class_name));
 
     } else if (class_name == TOKEN_FOR_U007B_LEFT_CURLY_BRACKET) {
       TRY(prefix_push_string("_anonymous_", 11));
@@ -1418,7 +1418,7 @@ analyze_csharp_java(void) {
     while (l < (n_lnats - 1u)) {
       token_t t0 = TOKEN_AT(l++);
       if (token_is_namey(t0)) {
-        TRY(prefix_push(t0));
+        TRY(prefix_push_token(t0));
       }
       token_t t1 = TOKEN_AT(l++);
       if (t1 == TOKEN_FOR_U003B_SEMICOLON) {
@@ -1495,7 +1495,7 @@ analyze_csharp_java(void) {
       if (t != g_token_for_namespace) {
         emit_one(l);
       }
-      TRY(prefix_push(TOKEN_AT(l++)));
+      TRY(prefix_push_token(TOKEN_AT(l++)));
       if ((t == g_token_for_namespace) &&  //
           (l < n_lnats) && (TOKEN_AT(l) == TOKEN_FOR_U003B_SEMICOLON)) {
         l++;
@@ -1550,7 +1550,7 @@ analyze_go(void) {
   if (n_lnats < 2u) {
     return NULL;
   }
-  TRY(prefix_push(TOKEN_AT(1)));
+  TRY(prefix_push_token(TOKEN_AT(1)));
 
   for (uint32_t l = 2u; l < n_lnats;) {
     token_t keyword = TOKEN_AT(l++);
@@ -1581,7 +1581,7 @@ analyze_go(void) {
       }
 
       if (recv_type != 0u) {
-        TRY(prefix_push(recv_type));
+        TRY(prefix_push_token(recv_type));
       }
       emit_one(l++);
       if (recv_type != 0u) {
@@ -1631,7 +1631,7 @@ analyze_go(void) {
           (TOKEN_AT(l + 0u) == g_token_for_struct) &&  //
           (TOKEN_AT(l + 1u) == TOKEN_FOR_U007B_LEFT_CURLY_BRACKET)) {
         l += 2u;
-        TRY(prefix_push(type_name));
+        TRY(prefix_push_token(type_name));
         while (true) {
           uint32_t l1 = skip_past_go_semicolon(l, n_lnats);
           emit_comma_separated_names(l, l1);
