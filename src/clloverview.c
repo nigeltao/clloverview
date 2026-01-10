@@ -210,7 +210,9 @@ token_length(token_t t) {
 #define TOKEN_FOR_U002C_COMMA                   0x8020002Cu
 #define TOKEN_FOR_U002E_FULL_STOP               0x8020002Eu
 #define TOKEN_FOR_U003B_SEMICOLON               0x8020003Bu
+#define TOKEN_FOR_U003C_LESS_THAN_SIGN          0x8020003Cu
 #define TOKEN_FOR_U003D_EQUALS_SIGN             0x8020003Du
+#define TOKEN_FOR_U003E_GREATER_THAN_SIGN       0x8020003Eu
 #define TOKEN_FOR_U0040_COMMERCIAL_AT           0x80200040u
 #define TOKEN_FOR_U005B_LEFT_SQUARE_BRACKET     0x8020005Bu
 #define TOKEN_FOR_U005D_RIGHT_SQUARE_BRACKET    0x8020005Du
@@ -984,25 +986,22 @@ prefix_pop(void) {
 }
 
 static error_message_t  //
-prefix_push(token_t t) {
-  /// Pushes "bar." on the prefix stack, where "bar" is t's string form.
+prefix_push_string(const char* s_ptr, size_t s_len) {
+  /// Pushes s and then a "." on the prefix stack.
 
-  if (!t) {
+  if (!s_ptr || !s_len) {
     return err_int_badargum;
   } else if ((g_prefix.n_marks + 1u) >= G_PREFIX_MARKS_SIZE) {
     return err_tok_itlnestd;
   }
 
-  uint32_t capacity = ((uint32_t)(sizeof(g_prefix.array))) - g_prefix.n_array;
+  size_t capacity = sizeof(g_prefix.array) - g_prefix.n_array;
   if (capacity < 2u) {
     return err_tok_itlnestd;
   }
   capacity -= 2u;  // For the trailng ".\x00".
 
-  uint32_t n = token_length(t);
-  if (n == 0u) {
-    return err_int_badargum;
-  } else if (n > capacity) {
+  if (s_len > capacity) {
     return err_tok_itlnestd;
   }
 
@@ -1010,12 +1009,60 @@ prefix_push(token_t t) {
   g_prefix.n_marks++;
 
   char* dst = &g_prefix.array[g_prefix.n_array];
-  memcpy(dst, token_as_cstring(t), n);
-  dst += n;
+  memcpy(dst, s_ptr, s_len);
+  dst += s_len;
   *dst++ = '.';
   *dst++ = 0;
-  g_prefix.n_array += n + 1u;
+  g_prefix.n_array += ((uint32_t)(s_len)) + 1u;
   return NULL;
+}
+
+static error_message_t  //
+prefix_push(token_t t) {
+  /// Pushes "bar." on the prefix stack, where "bar" is t's string form.
+
+  return prefix_push_string(token_as_cstring(t), token_length(t));
+}
+
+static error_message_t  //
+prefix_push_range(uint32_t l0, uint32_t l1) {
+  /// Pushes "x.y.z." on the prefix stack, from the "x::y::z" that is the token
+  /// range l0 .. l1.
+
+  if ((l0 + 1u) == l1) {
+    return prefix_push(TOKEN_AT(l0));
+  } else if ((l0 + 1u) > l1) {
+    return err_int_badargum;
+  }
+
+  static char buffer[4096] = {0};
+  char* dst_ptr = &buffer[0];
+  bool prepend_dot = false;
+  for (uint32_t l = l0; l < l1; l++) {
+    token_t t = TOKEN_AT(l);
+    if (t == TOKEN_FOR_OPERATOR_COLON_COLON) {
+      continue;
+    }
+
+    if (prepend_dot) {
+      size_t remaining = ((size_t)(&buffer[sizeof(buffer)] - dst_ptr));
+      if (remaining <= 0u) {
+        return err_tok_itlnestd;
+      }
+      *dst_ptr++ = '.';
+    }
+    prepend_dot = true;
+
+    const char* src_ptr = token_as_cstring(t);
+    size_t src_len = token_length(t);
+    size_t remaining = ((size_t)(&buffer[sizeof(buffer)] - dst_ptr));
+    if (remaining < src_len) {
+      return err_tok_itlnestd;
+    }
+    memcpy(dst_ptr, src_ptr, src_len);
+    dst_ptr += src_len;
+  }
+  return prefix_push_string(&buffer[0], ((size_t)(dst_ptr - &buffer[0])));
 }
 
 // --------
@@ -1062,27 +1109,54 @@ emit_comma_separated_names(uint32_t l0, uint32_t l1) {
   }
 }
 
+static error_message_t  //
+emit_colon_colon_separated(uint32_t l0, uint32_t l1) {
+  /// Like emit_one but the "qux" can contain dots, like "x.y.z", derived from
+  /// the "x::y::z" that is the token range l0 .. l1.
+
+  int num_push = 0;
+  uint32_t l = l0;
+  for (; (l + 2u) <= l1; l += 2u) {
+    token_t t0 = TOKEN_AT(l + 0u);
+    token_t t1 = TOKEN_AT(l + 1u);
+    if (!token_is_namey(t0) || (t1 != TOKEN_FOR_OPERATOR_COLON_COLON)) {
+      break;
+    }
+    TRY(prefix_push(t0));
+    num_push++;
+  }
+  emit_one(l);
+  while (num_push--) {
+    prefix_pop();
+  }
+  return NULL;
+}
+
 // --------
 
 static uint32_t  //
-skip_brackets(uint32_t l0, uint32_t l1) {
-  /// Returns the smallest l, in the range (l0 + 1) ..= l1, such that the token
-  /// range (l0 - 1) .. l forms a balance (the same number of left and right
-  /// brackets) of round / square / curly brackets.
-  ///
-  /// The token just seen, at (l0 - 1), is assumed to be a left-bracket.
-  ///
-  /// If no such l exists, it returns l1.
-
+skip_brackets_pointy(uint32_t l0, uint32_t l1, bool pointy) {
   uint32_t bracket_depth = 1u;
   for (uint32_t l = l0; l < l1;) {
     token_t t = TOKEN_AT(l++);
     switch (t) {
+      case TOKEN_FOR_U003C_LESS_THAN_SIGN:
+        if (!pointy) {
+          continue;
+        }
+        // fallthrough
+
       case TOKEN_FOR_U0028_LEFT_PARENTHESIS:
       case TOKEN_FOR_U005B_LEFT_SQUARE_BRACKET:
       case TOKEN_FOR_U007B_LEFT_CURLY_BRACKET:
         bracket_depth++;
         break;
+
+      case TOKEN_FOR_U003E_GREATER_THAN_SIGN:
+        if (!pointy) {
+          continue;
+        }
+        // fallthrough
 
       case TOKEN_FOR_U0029_RIGHT_PARENTHESIS:
       case TOKEN_FOR_U005D_RIGHT_SQUARE_BRACKET:
@@ -1095,6 +1169,19 @@ skip_brackets(uint32_t l0, uint32_t l1) {
     }
   }
   return l1;
+}
+
+static uint32_t  //
+skip_brackets(uint32_t l0, uint32_t l1) {
+  /// Returns the smallest l, in the range (l0 + 1) ..= l1, such that the token
+  /// range (l0 - 1) .. l forms a balance (the same number of left and right
+  /// brackets) of round / square / curly brackets.
+  ///
+  /// The token just seen, at (l0 - 1), is assumed to be a left-bracket.
+  ///
+  /// If no such l exists, it returns l1.
+
+  return skip_brackets_pointy(l0, l1, false);
 }
 
 static uint32_t  //
@@ -1187,8 +1274,134 @@ skip_past_go_semicolon(uint32_t l0, uint32_t l1) {
 // --------
 
 static error_message_t  //
+analyze_c_thing(uint32_t l0, uint32_t l1) {
+  /// Analyzes a 'line' of C / C++ / etc code, the token range l0 .. l1, where
+  /// 'line' means roughly something up until a ';' or '{'.
+
+  uint32_t prev_l = 0xFFFFFFFFu;
+  for (uint32_t l = l0; l < l1;) {
+    token_t t = TOKEN_AT(l++);
+
+    if (token_is_namey(t)) {
+      prev_l = l - 1u;
+      for (; l + 2u <= l1; l += 2u) {
+        token_t t0 = TOKEN_AT(l + 0u);
+        token_t t1 = TOKEN_AT(l + 1u);
+        if ((t0 != TOKEN_FOR_OPERATOR_COLON_COLON) || !token_is_namey(t1)) {
+          break;
+        }
+      }
+      continue;
+
+    } else if (t == TOKEN_FOR_U005B_LEFT_SQUARE_BRACKET) {
+      l = skip_brackets(l, l1);
+      continue;
+
+    } else if (t == TOKEN_FOR_U003C_LESS_THAN_SIGN) {
+      l = skip_brackets_pointy(l, l1, true);
+      continue;
+
+    } else if (t == TOKEN_FOR_U0028_LEFT_PARENTHESIS) {
+      if ((l < l1) && (TOKEN_AT(l) == TOKEN_FOR_U002A_ASTERISK)) {
+        l++;
+        continue;
+      }
+
+    } else if ((t != TOKEN_FOR_U002C_COMMA) &&
+               (t != TOKEN_FOR_U003B_SEMICOLON) &&
+               (t != TOKEN_FOR_U003D_EQUALS_SIGN)) {
+      continue;
+    }
+
+    if (prev_l != 0xFFFFFFFFu) {
+      TRY(emit_colon_colon_separated(prev_l, l - 1u));
+    }
+    prev_l = 0xFFFFFFFFu;
+
+    if (t != TOKEN_FOR_U002C_COMMA) {
+      break;
+    }
+  }
+
+  return NULL;
+}
+
+static error_message_t  //
 analyze_c(void) {
-  return "TODO: analyze_c";
+  uint32_t l0 = 0u;
+  for (uint32_t l = 0u; l < n_lnats;) {
+    token_t t = TOKEN_AT(l++);
+
+    if ((t == TOKEN_FOR_U003B_SEMICOLON) ||
+        (t == TOKEN_FOR_U007B_LEFT_CURLY_BRACKET)) {
+      TRY(analyze_c_thing(l0, l));
+      if (t == TOKEN_FOR_U007B_LEFT_CURLY_BRACKET) {
+        l = skip_brackets(l, n_lnats);
+      }
+      l0 = l;
+      continue;
+
+    } else if (t == TOKEN_FOR_U007D_RIGHT_CURLY_BRACKET) {
+      prefix_pop();
+      l0 = l;
+      continue;
+
+    } else if (t == g_token_for_using) {
+      while (true) {
+        if (l >= n_lnats) {
+          return NULL;
+        } else if (TOKEN_AT(l++) == TOKEN_FOR_U003B_SEMICOLON) {
+          break;
+        }
+      }
+      l0 = l;
+      continue;
+
+    } else if ((t != g_token_for_class) &&   //
+               (t != g_token_for_struct) &&  //
+               (t != g_token_for_namespace)) {
+      continue;
+
+    } else if (l >= n_lnats) {
+      return NULL;
+    }
+
+    token_t class_name = TOKEN_AT(l);
+    if (t != g_token_for_namespace) {
+      emit_one(l++);
+      TRY(prefix_push(class_name));
+
+    } else if (class_name == TOKEN_FOR_U007B_LEFT_CURLY_BRACKET) {
+      TRY(prefix_push_string("_anonymous_", 11));
+
+    } else {
+      uint32_t start_l = l++;
+      for (; (l + 2u) <= n_lnats; l += 2u) {
+        token_t t0 = TOKEN_AT(l + 0u);
+        token_t t1 = TOKEN_AT(l + 1u);
+        if ((t0 != TOKEN_FOR_OPERATOR_COLON_COLON) || !token_is_namey(t1)) {
+          break;
+        }
+      }
+      TRY(prefix_push_range(start_l, l));
+    }
+
+    while (true) {
+      if (l >= n_lnats) {
+        return NULL;
+      }
+      token_t t = TOKEN_AT(l++);
+      if (t == TOKEN_FOR_U007B_LEFT_CURLY_BRACKET) {
+        break;
+      } else if (t == TOKEN_FOR_U003B_SEMICOLON) {
+        prefix_pop();
+        break;
+      }
+    }
+
+    l0 = l;
+  }
+  return NULL;
 }
 
 // --------

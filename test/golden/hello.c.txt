@@ -1,0 +1,1 @@
+main    = "test/golden/hello.c:3";
