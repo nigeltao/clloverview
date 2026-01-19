@@ -64,3 +64,15 @@ var (
 )
 
 const space string = " "
+
+const (
+	A     = "U+0041 LATIN CAPITAL LETTER A"
+	À     = "U+00C0 LATIN CAPITAL LETTER A WITH GRAVE"
+	α12_z = "U+03B1 GREEK SMALL LETTER ALPHA, 1, 2, _, z"
+	яж    = "U+044F CYRILLIC SMALL LETTER YA, U+0436 CYRILLIC SMALL LETTER ZHE"
+
+	// This is a valid Go variable name (it's a Unicode letter) but, for
+	// implementation simplicity, clloverview's is_namey_rune ignores it. This
+	// is arguably a false negative, but cases like these are rare in practice.
+	ﬁ = "U+FB01 LATIN SMALL LIGATURE FI"
+)

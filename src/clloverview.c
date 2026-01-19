@@ -101,18 +101,43 @@ static const uint8_t alpha_numeric_lut[256] = {
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  //
     0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0, 0,  // '\''
     2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 0, 0, 0, 0, 0, 0,  // '0'-'9'
+
     0, 5, 5, 5, 5, 5, 5, 1, 1, 1, 1, 1, 1, 1, 1, 1,  // 'A'-'O'
     1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 9,  // 'P'-'Z', '_'
     0, 5, 5, 5, 5, 5, 5, 1, 1, 1, 1, 1, 1, 1, 1, 1,  // 'a'-'o'
     1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0,  // 'p'-'z'
+
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  //
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  //
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  //
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  //
+
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  //
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  //
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  //
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  //
+};
+
+static const uint8_t utf8_length_lut[256] = {
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,  //
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,  //
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,  //
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,  //
+
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,  //
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,  //
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,  //
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,  //
+
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  //
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  //
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  //
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  //
+
+    2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,  //
+    2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,  //
+    3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,  //
+    4, 4, 4, 4, 4, 4, 4, 4, 0, 0, 0, 0, 0, 0, 0, 0,  //
 };
 
 // --------
@@ -133,6 +158,97 @@ poke_u16le(void* ptr, uint16_t x) {
   uint8_t* p = (uint8_t*)ptr;
   p[0] = (uint8_t)(x >> 0);
   p[1] = (uint8_t)(x >> 8);
+}
+
+// --------
+
+static inline uint32_t  //
+count_utf8_runes(const char* s_ptr, size_t s_len) {
+  /// Returns the number of runes (Unicode Code Points) in s. It assumes that s
+  /// is valid UTF-8.
+
+  uint32_t n = 0;
+  while (s_len--) {
+    if (0x80 != (0xC0 & *s_ptr++)) {
+      n++;
+    }
+  }
+  return n;
+}
+
+static inline uint64_t  //
+decode_utf8_rune(const char* s_ptr, const char* s_end) {
+  /// Returns the next UTF-8 rune (Unicode Code Point) in s. Invalid UTF-8
+  /// produces U+FFFD REPLACEMENT CHARACTER.
+  ///
+  /// The uint64_t value returned packs two uint32_t values:
+  ///
+  /// - The high uint32_t is the rune length in bytes.
+  /// - The low  uint32_t is the rune value.
+  ///
+  /// For implementation simplicity, it allows UTF-8 overlong encodings. It
+  /// allows a superset of valid UTF-8.
+
+  if (s_ptr >= s_end) {
+    return 0x00000FFFDul;
+  }
+  uint32_t v = 0xFF & *s_ptr++;
+  uint32_t n = utf8_length_lut[v];
+  if (n == 1u) {
+    return 0x100000000ul | ((uint64_t)(v));
+  } else if (n < 1u) {
+    return 0x10000FFFDul;
+  }
+
+  static const uint32_t masks[5] = {0x00, 0x00, 0x1F, 0x0F, 0x07};
+  v &= masks[n];
+  for (uint32_t i = 1u; i < n; i++) {
+    if (s_ptr >= s_end) {
+      return (((uint64_t)(i + 0u)) << 32) | 0xFFFDul;
+    } else if (0x80 != (0xC0 & *s_ptr)) {
+      return (((uint64_t)(i + 1u)) << 32) | 0xFFFDul;
+    }
+    v = (v << 6) | ((uint32_t)(0x3F & *s_ptr++));
+  }
+  return (((uint64_t)(n)) << 32) | ((uint64_t)(v));
+}
+
+static inline bool  //
+is_namey_rune(uint8_t mask, uint32_t rune) {
+  /// Returns whether the rune (the Unicode Code Point) is:
+  ///
+  /// - alphabetic          or an underscore, if mask is 0x01.
+  /// - alphabetic, numeric or an underscore, if mask is 0x03.
+  ///
+  /// Numeric means '0' ..= '9'. Underscore means '_'. Alphabetic means 'A' ..=
+  /// 'Z' or 'a' ..= 'z' or "a non-ASCII letter".
+  ///
+  /// "A non-ASCII Letter" should, strictly speaking, mean "a non-ASCII rune
+  /// with the Unicode category [L]". But, for implementation simplicity, we
+  /// approximate this as the union of certain Unicode ranges:
+  ///
+  /// U+00C0 ..= U+02AF covers these Unicode blocks:
+  ///
+  /// - Latin-1 Supplement (U+00C0 or higher)
+  /// - Latin Extended-A
+  /// - Latin Extended-B
+  /// - IPA Extensions
+  ///
+  /// U+0370 ..= U+04FF covers these Unicode blocks:
+  ///
+  /// - Greek and Coptic
+  /// - Cyrillic
+  ///
+  /// U+1E00 ..= U+1EFF covers these Unicode blocks:
+  ///
+  /// - Latin Extended Additional
+
+  if (rune < 0x0080u) {
+    return mask & alpha_numeric_lut[rune];
+  }
+  return ((0x00C0u <= rune) && (rune <= 0x02AFu)) ||
+         ((0x0370u <= rune) && (rune <= 0x04FFu)) ||
+         ((0x1E00u <= rune) && (rune <= 0x1EFFu));
 }
 
 // --------
@@ -553,11 +669,13 @@ restart_next_token:
   while (true) {
     if (p >= g_input_end) {
       return err_int_endoffil;
-    } else if (*p > ' ') {
+    }
+    uint32_t u = 0xFF & *p;
+    if (u > ' ') {
       break;
     }
-    const char c = *p++;
-    if (c == '\n') {
+    p++;
+    if (u == '\n') {
       g_line_number++;
       if (g_line_number >= MAX_EXCL_LINE_NUMBER) {
         return err_tok_itllines;
@@ -566,23 +684,30 @@ restart_next_token:
         g_token = TOKEN_FOR_U000A_LINE_FEED;
         return NULL;
       }
-    } else if (c == '\x00') {
+    } else if (u == '\x00') {
       return err_tok_nulbytee;
     }
   }
 
   // Handle name and number tokens.
-  uint8_t alpha_numeric = 0x03 & alpha_numeric_lut[0xFF & *p];
-  if (alpha_numeric == 0x01) {
+  uint64_t packed_utf8 = decode_utf8_rune(p, g_input_end);
+  if (is_namey_rune(0x01, ((uint32_t)(packed_utf8)))) {
     const char* original_p = p;
-    do {
-      p++;
-    } while ((p < g_input_end) && (0x03 & alpha_numeric_lut[0xFF & *p]));
+    while (true) {
+      p += ((uint32_t)(packed_utf8 >> 32));
+      if (p >= g_input_end) {
+        break;
+      }
+      packed_utf8 = decode_utf8_rune(p, g_input_end);
+      if (!is_namey_rune(0x03, ((uint32_t)(packed_utf8)))) {
+        break;
+      }
+    }
     g_input_ptr = p;
     size_t len = ((size_t)(p - original_p));
     return internalize(original_p, len, true);
 
-  } else if (alpha_numeric == 0x02) {
+  } else if (('0' <= *p) && (*p <= '9')) {
     g_input_ptr = p;
     return next_numeric_token();
   }
@@ -899,7 +1024,7 @@ preprocess(void) {
 // --------
 
 static error_message_t  //
-tokenize() {
+tokenize(void) {
   /// Populates the g_lnats array and sets n_lnats.
 
   reset_global_tokenizer_state();
@@ -1082,11 +1207,13 @@ emit_one(uint32_t l) {
   line_number_and_token_t lnat = g_lnats[l];
   uint32_t line_number = ((uint32_t)(lnat >> 32));
   token_t token = ((token_t)(lnat));
-  uint32_t n = g_prefix.n_array + token_length(token);
+  const char* token_str = token_as_cstring(token);
+  uint32_t n = count_utf8_runes(g_prefix.array, g_prefix.n_array) +
+               count_utf8_runes(token_str, token_length(token));
   printf("%s%s%s%s%s%s:%" PRIu32 "\";\n",     //
          g_color_code0 ? g_color_code0 : "",  //
          g_prefix.array,                      //
-         token_as_cstring(token),             //
+         token_str,                           //
          g_color_code1 ? g_color_code1 : "",  //
          &eight_spaces_etc[n & 7u],           //
          g_filename_ptr,                      //

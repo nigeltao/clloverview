@@ -25,3 +25,7 @@ example.v6      = "test/golden/g.go:61";
 example.v7      = "test/golden/g.go:61";
 example.someStruct      = "test/golden/g.go:63";
 example.space   = "test/golden/g.go:66";
+example.A       = "test/golden/g.go:69";
+example.À       = "test/golden/g.go:70";
+example.α12_z   = "test/golden/g.go:71";
+example.яж      = "test/golden/g.go:72";
