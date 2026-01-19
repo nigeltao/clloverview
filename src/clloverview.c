@@ -1211,8 +1211,8 @@ emit_one(uint32_t l) {
   uint32_t n = count_utf8_runes(g_prefix.array, g_prefix.n_array) +
                count_utf8_runes(token_str, token_length(token));
   printf("%s%s%s%s%s%s:%" PRIu32 "\";\n",     //
-         g_color_code0 ? g_color_code0 : "",  //
          g_prefix.array,                      //
+         g_color_code0 ? g_color_code0 : "",  //
          token_str,                           //
          g_color_code1 ? g_color_code1 : "",  //
          &eight_spaces_etc[n & 7u],           //
