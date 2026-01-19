@@ -349,6 +349,9 @@ token_length(token_t t) {
 typedef uint64_t line_number_and_token_t;
 /// Line number is in the high 32 bits, token is in the low 32 bits.
 
+static void  //
+emit_one(line_number_and_token_t lnat);
+
 // --------
 
 // Global variables, named g_foobar or n_foobar. n_foobar is g_foobar's length
@@ -860,6 +863,7 @@ preprocess_define(void) {
         }
         index = n_macro_definitions;
         name = g_token;
+        emit_one((((uint64_t)(g_line_number)) << 32) | ((uint64_t)(name)));
         if ((g_input_ptr < g_input_end) && (*g_input_ptr == '(')) {
           g_input_ptr++;
           state = 1;
@@ -1193,18 +1197,14 @@ prefix_push_range(uint32_t l0, uint32_t l1) {
 // --------
 
 static void  //
-emit_one(uint32_t l) {
+emit_one(line_number_and_token_t lnat) {
   /// Prints one output line, `foo.bar.qux = "d/e/filename.c:12";`.
   ///
   /// The "foo.bar." part comes from g_prefix. The "qux" and "12" parts come
-  /// from g_lnats[l]. The "d/e/filename.c" is g_filename_ptr.
+  /// from lnat. The "d/e/filename.c" is g_filename_ptr.
 
   static const char* eight_spaces_etc = "        = \"";
 
-  if (l >= n_lnats) {
-    return;
-  }
-  line_number_and_token_t lnat = g_lnats[l];
   uint32_t line_number = ((uint32_t)(lnat >> 32));
   token_t token = ((token_t)(lnat));
   const char* token_str = token_as_cstring(token);
@@ -1229,7 +1229,7 @@ emit_comma_separated_names(uint32_t l0, uint32_t l1) {
     if (!token_is_namey(TOKEN_AT(l))) {
       break;
     }
-    emit_one(l++);
+    emit_one(g_lnats[l++]);
     if ((l >= l1) || (TOKEN_AT(l++) != TOKEN_FOR_U002C_COMMA)) {
       break;
     }
@@ -1252,7 +1252,7 @@ emit_colon_colon_separated(uint32_t l0, uint32_t l1) {
     TRY(prefix_push_token(t0));
     num_push++;
   }
-  emit_one(l);
+  emit_one(g_lnats[l]);
   while (num_push--) {
     prefix_pop();
   }
@@ -1495,7 +1495,7 @@ analyze_c(void) {
 
     token_t class_name = TOKEN_AT(l);
     if (t != g_token_for_namespace) {
-      emit_one(l++);
+      emit_one(g_lnats[l++]);
       TRY(prefix_push_token(class_name));
 
     } else if (class_name == TOKEN_FOR_U007B_LEFT_CURLY_BRACKET) {
@@ -1561,7 +1561,7 @@ analyze_csharp_java(void) {
 
     if (t == TOKEN_FOR_U0028_LEFT_PARENTHESIS) {
       if ((l >= 2u) && !is_enumerating) {
-        emit_one(l - 2u);
+        emit_one(g_lnats[l - 2u]);
       }
       l = skip_brackets(l, n_lnats);
       if (l >= n_lnats) {
@@ -1581,7 +1581,7 @@ analyze_csharp_java(void) {
     } else if ((t == TOKEN_FOR_U003B_SEMICOLON) ||
                (t == TOKEN_FOR_U003D_EQUALS_SIGN)) {
       if (l >= 2u) {
-        emit_one(l - 2u);
+        emit_one(g_lnats[l - 2u]);
       }
       l = skip_past_semicolon(l - 1u, n_lnats);
       is_enumerating = false;
@@ -1620,7 +1620,7 @@ analyze_csharp_java(void) {
       is_enumerating = (t == g_token_for_enum);
 
       if (t != g_token_for_namespace) {
-        emit_one(l);
+        emit_one(g_lnats[l]);
       }
       TRY(prefix_push_token(TOKEN_AT(l++)));
       if ((t == g_token_for_namespace) &&  //
@@ -1643,7 +1643,7 @@ analyze_csharp_java(void) {
       }
 
     } else if (is_enumerating && token_is_namey(t)) {
-      emit_one(l - 1u);
+      emit_one(g_lnats[l - 1u]);
     }
   }
 
@@ -1710,7 +1710,7 @@ analyze_go(void) {
       if (recv_type != 0u) {
         TRY(prefix_push_token(recv_type));
       }
-      emit_one(l++);
+      emit_one(g_lnats[l++]);
       if (recv_type != 0u) {
         prefix_pop();
       }
@@ -1749,7 +1749,7 @@ analyze_go(void) {
       if (!token_is_namey(type_name)) {
         return NULL;
       }
-      emit_one(l++);
+      emit_one(g_lnats[l++]);
       while ((l < n_lnats) &&
              (TOKEN_AT(l) == TOKEN_FOR_U005B_LEFT_SQUARE_BRACKET)) {
         l = skip_brackets(l + 1u, n_lnats);

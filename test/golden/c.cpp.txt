@@ -1,3 +1,4 @@
+BLAH_SIZE       = "test/golden/c.cpp:64";
 my_printf       = "test/golden/c.cpp:3";
 T       = "test/golden/c.cpp:5";
 T.t_method      = "test/golden/c.cpp:6";
@@ -25,3 +26,4 @@ N.n9    = "test/golden/c.cpp:53";
 v       = "test/golden/c.cpp:56";
 min_xy  = "test/golden/c.cpp:58";
 pair_xy = "test/golden/c.cpp:61";
+aargh.blah      = "test/golden/c.cpp:65";

@@ -59,3 +59,9 @@ int min_xy = min(x, y);
 
 using std::make_pair;
 std::pair<X, Y> pair_xy = make_pair(x, y);
+
+namespace aargh {
+#define BLAH_SIZE 99
+int blah[BLAH_SIZE];
+#undef BLAH_SIZE
+}  // namespace aargh
