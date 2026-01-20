@@ -64,4 +64,22 @@ namespace aargh {
 #define BLAH_SIZE 99
 int blah[BLAH_SIZE];
 #undef BLAH_SIZE
+
+typedef struct {
+  int i, j;
+  double d;
+} thomson, thompson;
+
+struct {
+  int i, j;
+  double d;
+} dupond;
+
+struct dupont_struct {
+  int i, j;
+  double d;
+} dupont;
+
+int inside;
 }  // namespace aargh
+int outside;

@@ -1495,8 +1495,18 @@ analyze_c(void) {
 
     token_t class_name = TOKEN_AT(l);
     if (t != g_token_for_namespace) {
-      emit_one(g_lnats[l++]);
-      TRY(prefix_push_token(class_name));
+      if (class_name == TOKEN_FOR_U007B_LEFT_CURLY_BRACKET) {
+        uint32_t l_after_bracket = skip_brackets(l + 1u, n_lnats);
+        if ((l_after_bracket < n_lnats) &&
+            token_is_namey(TOKEN_AT(l_after_bracket))) {
+          TRY(prefix_push_token(TOKEN_AT(l_after_bracket)));
+        } else {
+          TRY(prefix_push_string("_type_name_", 11));
+        }
+      } else {
+        emit_one(g_lnats[l++]);
+        TRY(prefix_push_token(class_name));
+      }
 
     } else if (class_name == TOKEN_FOR_U007B_LEFT_CURLY_BRACKET) {
       TRY(prefix_push_string("_anonymous_", 11));
