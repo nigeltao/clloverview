@@ -83,3 +83,24 @@ struct dupont_struct {
 int inside;
 }  // namespace aargh
 int outside;
+
+class Structor {
+ public:
+  Structor();
+  Structor(int arg0) : field(arg0) {}
+  Structor(int arg0, int arg1);
+  ~Structor();
+
+  Structor operator+(const Structor& other) const;
+  int operator[](int index) { return field + index; }
+
+ private:
+  int field;
+};
+
+Structor::Structor() : field(123) {}
+Structor::~Structor() {}
+
+Structor Structor::operator+(const Structor& other) const {
+  return Structor(45);
+}

@@ -801,7 +801,24 @@ restart_next_token:
 
   } else if (c == ':') {
     if ((p < g_input_end) && (*p == ':')) {
-      g_input_ptr = p + 1;
+      p++;
+
+      // As a hack, tokenize the "::~" in the C++ destructor "Foo::~Foo" as a
+      // TOKEN_FOR_OPERATOR_COLON_COLON, ignoring the "~". This simplifies the
+      // other code that deals with TOKEN_FOR_OPERATOR_COLON_COLON. clloverview
+      // doesn't discriminate between C++ constructors and destructors but
+      // would otherwise have to care about the tilde.
+      for (; p < g_input_end; p++) {
+        uint32_t u = 0xFF & *p;
+        if (u == '~') {
+          p++;
+          break;
+        } else if ((u != '\t') && (u != ' ')) {
+          break;
+        }
+      }
+
+      g_input_ptr = p;
       g_token = TOKEN_FOR_OPERATOR_COLON_COLON;
       return NULL;
     }
@@ -1411,7 +1428,7 @@ analyze_c_thing(uint32_t l0, uint32_t l1) {
 
     if (token_is_namey(t)) {
       prev_l = l - 1u;
-      for (; l + 2u <= l1; l += 2u) {
+      for (; (l + 2u) <= l1; l += 2u) {
         token_t t0 = TOKEN_AT(l + 0u);
         token_t t1 = TOKEN_AT(l + 1u);
         if ((t0 != TOKEN_FOR_OPERATOR_COLON_COLON) || !token_is_namey(t1)) {
