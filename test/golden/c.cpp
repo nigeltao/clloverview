@@ -104,3 +104,8 @@ Structor::~Structor() {}
 Structor Structor::operator+(const Structor& other) const {
   return Structor(45);
 }
+
+// https://fmt.dev/12.0/api/#format_to_n
+template <typename OutputIt, typename... T>
+auto format_to_n(OutputIt out, size_t n, format_string<T...> fmt, T&&... args)
+    -> format_to_n_result<OutputIt>;

@@ -1490,7 +1490,7 @@ analyze_c(void) {
       l0 = l;
       continue;
 
-    } else if (t == g_token_for_using) {
+    } else if ((t == g_token_for_import) || (t == g_token_for_using)) {
       while (true) {
         if (l >= n_lnats) {
           return NULL;
