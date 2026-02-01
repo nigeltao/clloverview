@@ -1993,7 +1993,10 @@ process_flag(const char* arg) {
     arg += 6;
     bool on = false;
 
-    if (!strcmp(arg, "auto")) {
+    char* no_color = getenv("NO_COLOR");
+    if ((no_color != NULL) && (no_color[0] != '\x00')) {
+      // No-op.
+    } else if (!strcmp(arg, "auto")) {
       static const int stdout_fd = 1;
       const char* term = getenv("TERM");
       on = isatty(stdout_fd) && term && strcmp(term, "dumb");
