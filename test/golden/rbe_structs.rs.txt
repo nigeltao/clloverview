@@ -1,0 +1,12 @@
+Person  = "test/golden/rbe_structs.rs:7";
+Person.name     = "test/golden/rbe_structs.rs:8";
+Person.age      = "test/golden/rbe_structs.rs:9";
+Unit    = "test/golden/rbe_structs.rs:13";
+Pair    = "test/golden/rbe_structs.rs:16";
+Point   = "test/golden/rbe_structs.rs:19";
+Point.x = "test/golden/rbe_structs.rs:20";
+Point.y = "test/golden/rbe_structs.rs:21";
+Rectangle       = "test/golden/rbe_structs.rs:25";
+Rectangle.top_left      = "test/golden/rbe_structs.rs:28";
+Rectangle.bottom_right  = "test/golden/rbe_structs.rs:29";
+main    = "test/golden/rbe_structs.rs:32";

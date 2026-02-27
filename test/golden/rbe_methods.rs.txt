@@ -1,0 +1,14 @@
+Point   = "test/golden/rbe_methods.rs:3";
+Point.x = "test/golden/rbe_methods.rs:4";
+Point.y = "test/golden/rbe_methods.rs:5";
+Point.origin    = "test/golden/rbe_methods.rs:15";
+Point.new       = "test/golden/rbe_methods.rs:20";
+Rectangle       = "test/golden/rbe_methods.rs:25";
+Rectangle.p1    = "test/golden/rbe_methods.rs:26";
+Rectangle.p2    = "test/golden/rbe_methods.rs:27";
+Rectangle.area  = "test/golden/rbe_methods.rs:34";
+Rectangle.perimeter     = "test/golden/rbe_methods.rs:44";
+Rectangle.translate     = "test/golden/rbe_methods.rs:53";
+Pair    = "test/golden/rbe_methods.rs:63";
+Pair.destroy    = "test/golden/rbe_methods.rs:68";
+main    = "test/golden/rbe_methods.rs:78";

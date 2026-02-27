@@ -1,0 +1,13 @@
+impl.Output     = "test/golden/ripgrep_matcher_lib.rs:5";
+impl.index      = "test/golden/ripgrep_matcher_lib.rs:8";
+impl.index_mut  = "test/golden/ripgrep_matcher_lib.rs:15";
+str.Output      = "test/golden/ripgrep_matcher_lib.rs:21";
+str.index       = "test/golden/ripgrep_matcher_lib.rs:24";
+NoError = "test/golden/ripgrep_matcher_lib.rs:31";
+NoError.description     = "test/golden/ripgrep_matcher_lib.rs:34";
+NoError.fmt     = "test/golden/ripgrep_matcher_lib.rs:40";
+std.io.Error.from       = "test/golden/ripgrep_matcher_lib.rs:46";
+M.Captures      = "test/golden/ripgrep_matcher_lib.rs:54";
+M.Error = "test/golden/ripgrep_matcher_lib.rs:55";
+M.find_at       = "test/golden/ripgrep_matcher_lib.rs:58";
+M.new_captures  = "test/golden/ripgrep_matcher_lib.rs:67";

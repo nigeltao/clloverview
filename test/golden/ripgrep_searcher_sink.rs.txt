@@ -1,0 +1,3 @@
+sinks.UTF8      = "test/golden/ripgrep_searcher_sink.rs:6";
+sinks.UTF8.Error        = "test/golden/ripgrep_searcher_sink.rs:14";
+sinks.UTF8.matched      = "test/golden/ripgrep_searcher_sink.rs:16";

@@ -1,0 +1,1 @@
+main    = "test/golden/hello.rs:1";

@@ -1,0 +1,15 @@
+Sheep   = "test/golden/rbe_trait.rs:3";
+Sheep.naked     = "test/golden/rbe_trait.rs:3";
+Sheep.name      = "test/golden/rbe_trait.rs:3";
+Animal  = "test/golden/rbe_trait.rs:5";
+Animal.new      = "test/golden/rbe_trait.rs:7";
+Animal.name     = "test/golden/rbe_trait.rs:10";
+Animal.noise    = "test/golden/rbe_trait.rs:11";
+Animal.talk     = "test/golden/rbe_trait.rs:14";
+Sheep.is_naked  = "test/golden/rbe_trait.rs:20";
+Sheep.shear     = "test/golden/rbe_trait.rs:24";
+Sheep.new       = "test/golden/rbe_trait.rs:39";
+Sheep.name      = "test/golden/rbe_trait.rs:43";
+Sheep.noise     = "test/golden/rbe_trait.rs:47";
+Sheep.talk      = "test/golden/rbe_trait.rs:56";
+main    = "test/golden/rbe_trait.rs:62";

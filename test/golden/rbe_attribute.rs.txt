@@ -1,0 +1,4 @@
+Rectangle       = "test/golden/rbe_attribute.rs:4";
+Rectangle.width = "test/golden/rbe_attribute.rs:5";
+Rectangle.height        = "test/golden/rbe_attribute.rs:6";
+main    = "test/golden/rbe_attribute.rs:11";

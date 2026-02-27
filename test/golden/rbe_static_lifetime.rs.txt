@@ -1,0 +1,2 @@
+random_vec      = "test/golden/rbe_static_lifetime.rs:6";
+main    = "test/golden/rbe_static_lifetime.rs:13";

@@ -76,6 +76,7 @@ static error_message_t err_tok_itlnestd = "tokenize: input is too large (in term
 static error_message_t err_tok_itltoken = "tokenize: input is too large (in terms of tokens)";
 static error_message_t err_tok_itluniqs = "tokenize: input is too large (in terms of unique strings)";
 static error_message_t err_tok_nulbytee = "tokenize: NUL byte encountered";
+static error_message_t err_tok_quotewem = "tokenize: quoted literal was empty";
 static error_message_t err_tok_quotewnt = "tokenize: quoted literal was not terminated";
 static error_message_t err_tok_slashwnt = "tokenize: slash-star comment was not terminated";
 static error_message_t err_tok_tokistol = "tokenize: token is too long";
@@ -320,11 +321,14 @@ token_length(token_t t) {
 
 #define TOKEN_FOR_U000A_LINE_FEED               0x8020000Au
 #define TOKEN_FOR_U0023_NUMBER_SIGN             0x80200023u
+#define TOKEN_FOR_U0026_AMPERSAND               0x80200026u
 #define TOKEN_FOR_U0028_LEFT_PARENTHESIS        0x80200028u
 #define TOKEN_FOR_U0029_RIGHT_PARENTHESIS       0x80200029u
 #define TOKEN_FOR_U002A_ASTERISK                0x8020002Au
 #define TOKEN_FOR_U002C_COMMA                   0x8020002Cu
+#define TOKEN_FOR_U0027_APOSTROPHE              0x80200027u
 #define TOKEN_FOR_U002E_FULL_STOP               0x8020002Eu
+#define TOKEN_FOR_U003A_COLON                   0x8020003Au
 #define TOKEN_FOR_U003B_SEMICOLON               0x8020003Bu
 #define TOKEN_FOR_U003C_LESS_THAN_SIGN          0x8020003Cu
 #define TOKEN_FOR_U003D_EQUALS_SIGN             0x8020003Du
@@ -377,6 +381,7 @@ static uint32_t n_lnats = 0u;
 static uint32_t n_string_contents = 0u;
 
 static bool g_has_preprocess_directive = false;
+static bool g_has_rust_attribute = false;
 
 #define G_PREFIX_MARKS_SIZE 64
 static struct {
@@ -399,15 +404,22 @@ static token_t g_token_for_const = 0u;
 static token_t g_token_for_default = 0u;
 static token_t g_token_for_define = 0u;
 static token_t g_token_for_enum = 0u;
+static token_t g_token_for_fn = 0u;
+static token_t g_token_for_for = 0u;
 static token_t g_token_for_func = 0u;
+static token_t g_token_for_impl = 0u;
 static token_t g_token_for_import = 0u;
 static token_t g_token_for_int = 0u;
 static token_t g_token_for_interface = 0u;
+static token_t g_token_for_mod = 0u;
 static token_t g_token_for_namespace = 0u;
 static token_t g_token_for_package = 0u;
+static token_t g_token_for_pub = 0u;
 static token_t g_token_for_struct = 0u;
+static token_t g_token_for_trait = 0u;
 static token_t g_token_for_type = 0u;
 static token_t g_token_for_undef = 0u;
+static token_t g_token_for_use = 0u;
 static token_t g_token_for_using = 0u;
 static token_t g_token_for_var = 0u;
 static token_t g_token_for_void = 0u;
@@ -464,6 +476,7 @@ reset_global_tokenizer_state(void) {
   n_string_contents = 0u;
 
   g_has_preprocess_directive = false;
+  g_has_rust_attribute = false;
 
   g_prefix.n_marks = 0;
   g_prefix.n_array = 0;
@@ -554,15 +567,22 @@ internalize_well_known_names(void) {
   g_token_for_default = INTERNALIZE_NAME("default");
   g_token_for_define = INTERNALIZE_NAME("define");
   g_token_for_enum = INTERNALIZE_NAME("enum");
+  g_token_for_fn = INTERNALIZE_NAME("fn");
+  g_token_for_for = INTERNALIZE_NAME("for");
   g_token_for_func = INTERNALIZE_NAME("func");
+  g_token_for_impl = INTERNALIZE_NAME("impl");
   g_token_for_import = INTERNALIZE_NAME("import");
   g_token_for_int = INTERNALIZE_NAME("int");
   g_token_for_interface = INTERNALIZE_NAME("interface");
+  g_token_for_mod = INTERNALIZE_NAME("mod");
   g_token_for_namespace = INTERNALIZE_NAME("namespace");
   g_token_for_package = INTERNALIZE_NAME("package");
+  g_token_for_pub = INTERNALIZE_NAME("pub");
   g_token_for_struct = INTERNALIZE_NAME("struct");
+  g_token_for_trait = INTERNALIZE_NAME("trait");
   g_token_for_type = INTERNALIZE_NAME("type");
   g_token_for_undef = INTERNALIZE_NAME("undef");
+  g_token_for_use = INTERNALIZE_NAME("use");
   g_token_for_using = INTERNALIZE_NAME("using");
   g_token_for_var = INTERNALIZE_NAME("var");
   g_token_for_void = INTERNALIZE_NAME("void");
@@ -599,6 +619,35 @@ token_as_cstring(token_t t) {
 
   uint32_t offset = t & LOW_21_BITS_MASK;
   return &g_string_contents[offset + 2];
+}
+
+static const char*  //
+next_rust_attribute_token(const char* p) {
+  const char c0 = ((p + 0) < g_input_end) ? p[0] : 0;
+  const char c1 = ((p + 1) < g_input_end) ? p[1] : 0;
+  if (c0 == '[') {
+    p += 1;
+  } else if ((c0 == '!') && (c1 == '[')) {
+    p += 2;
+  } else {
+    return NULL;
+  }
+
+  uint32_t bracket_depth = 1u;
+  for (; p < g_input_end; p++) {
+    if (*p == '[') {
+      bracket_depth++;
+    } else if (*p == ']') {
+      bracket_depth--;
+      if (bracket_depth == 0u) {
+        return p + 1;
+      }
+    } else if (*p < ' ') {
+      return NULL;
+    }
+    // TODO: brackets inside quoted strings.
+  }
+  return p;
 }
 
 static error_message_t  //
@@ -660,6 +709,53 @@ next_numeric_token(void) {
 }
 
 static error_message_t  //
+next_quote_token(const char* p, const char quote) {
+  if (quote == '\'') {
+    if (p >= g_input_end) {
+      return err_tok_quotewnt;
+    } else if (p[0] == '\'') {
+      return err_tok_quotewem;
+    } else if (('_' == p[0]) || (('a' <= p[0]) && (p[0] <= 'z'))) {
+      if ((p + 1) >= g_input_end) {
+        return err_tok_quotewnt;
+      } else if (p[1] == '\'') {
+        // We have a char literal, such as 'a' or 's'.
+        g_input_ptr = p + 2;
+        g_token = TOKEN_FOR_PLACEHOLDER_CHAR;
+        return NULL;
+      }
+      // We have something lifetime-like, such as 'a or 'static. The next token
+      // is just an apostrophe.
+      g_input_ptr = p;
+      g_token = TOKEN_FOR_U0027_APOSTROPHE;
+      return NULL;
+    }
+  }
+
+  for (bool backslash = false; p < g_input_end; p++) {
+    if (*p == '\n') {
+      g_line_number++;
+      if (g_line_number >= MAX_EXCL_LINE_NUMBER) {
+        return err_tok_itllines;
+      }
+    }
+
+    if (backslash) {
+      backslash = false;
+      continue;
+    } else if (*p == quote) {
+      g_input_ptr = p + 1;
+      g_token = (quote == '"') ? TOKEN_FOR_PLACEHOLDER_STRING
+                               : TOKEN_FOR_PLACEHOLDER_CHAR;
+      return NULL;
+    }
+
+    backslash = *p == '\\';
+  }
+  return err_tok_quotewnt;
+}
+
+static error_message_t  //
 next_token(bool return_line_feed_as_a_token) {
   /// Parses the next token. As a side effect, it updates g_input_ptr, g_token
   /// and g_line_number.
@@ -718,27 +814,21 @@ restart_next_token:
   // Handle quote tokens.
   const char c = *p++;
   if ((c == '"') || (c == '\'')) {
-    for (bool backslash = false; p < g_input_end; p++) {
-      if (*p == '\n') {
-        g_line_number++;
-        if (g_line_number >= MAX_EXCL_LINE_NUMBER) {
-          return err_tok_itllines;
-        }
-      }
+    return next_quote_token(p, c);
+  }
 
-      if (backslash) {
-        backslash = false;
-        continue;
-      } else if (*p == c) {
-        g_input_ptr = p + 1;
-        g_token = (c == '"') ? TOKEN_FOR_PLACEHOLDER_STRING
-                             : TOKEN_FOR_PLACEHOLDER_CHAR;
-        return NULL;
-      }
-
-      backslash = *p == '\\';
+  // Handle C/C++ macros (which are just TOKEN_FOR_U0023_NUMBER_SIGN) and Rust
+  // attributes (which this program treats as a comment).
+  if (c == '#') {
+    const char* q = next_rust_attribute_token(p);
+    if (q == NULL) {
+      g_input_ptr = p;
+      g_token = TOKEN_FOR_U0023_NUMBER_SIGN;
+      return NULL;
     }
-    return err_tok_quotewnt;
+    p = q;
+    g_has_rust_attribute = true;
+    goto restart_next_token;
   }
 
   // From here onwards, it's comments (or a backslash-line-feed), which
@@ -1597,7 +1687,7 @@ analyze_csharp_java(void) {
         l++;
         is_enumerating = false;
       } else if (TOKEN_AT(l) == g_token_for_default) {
-        l = skip_past_semicolon(l + 1, n_lnats);
+        l = skip_past_semicolon(l + 1u, n_lnats);
         is_enumerating = false;
       }
 
@@ -1824,12 +1914,182 @@ analyze_go(void) {
 
 // --------
 
+static uint32_t  //
+namey_token_or_impl(uint32_t l) {
+  if (token_is_namey(TOKEN_AT(l))) {
+    return l;
+  }
+  for (; l > 0u; l--) {
+    if (TOKEN_AT(l) == g_token_for_impl) {
+      return l;
+    }
+  }
+  return l;
+}
+
+static uint32_t  //
+parse_rust_struct_fields(uint32_t l) {
+  while (l < n_lnats) {
+    token_t t = TOKEN_AT(l++);
+    if (t == TOKEN_FOR_U007D_RIGHT_CURLY_BRACKET) {
+      break;
+    } else if (t == TOKEN_FOR_U003A_COLON) {
+      emit_one(g_lnats[l - 2u]);
+    }
+  }
+  return l;
+}
+
+static error_message_t  //
+analyze_rust(void) {
+  uint32_t bracket_depth = 0u;
+  for (uint32_t l = 0u; l < n_lnats;) {
+    token_t keyword = TOKEN_AT(l++);
+    if (l >= n_lnats) {
+      return NULL;
+    }
+
+    if (keyword == TOKEN_FOR_U007B_LEFT_CURLY_BRACKET) {
+      l = skip_brackets(l, n_lnats);
+
+    } else if (keyword == TOKEN_FOR_U007D_RIGHT_CURLY_BRACKET) {
+      if (bracket_depth <= 0u) {
+        return err_ana_unbalacb;
+      }
+      bracket_depth--;
+      prefix_pop();
+
+    } else if (keyword == g_token_for_use) {
+      l = skip_past_semicolon(l + 1u, n_lnats);
+      continue;
+
+    } else if (keyword == g_token_for_type) {
+      emit_one(g_lnats[l]);
+      l = skip_past_semicolon(l + 1u, n_lnats);
+      continue;
+
+    } else if (keyword == g_token_for_fn) {
+      if (!token_is_namey(TOKEN_AT(l))) {
+        return NULL;
+      }
+      emit_one(g_lnats[l++]);
+
+      while (l < n_lnats) {
+        token_t t = TOKEN_AT(l++);
+        if (t == TOKEN_FOR_U0028_LEFT_PARENTHESIS) {
+          l = skip_brackets(l, n_lnats);
+          break;
+        }
+      }
+
+      while (l < n_lnats) {
+        token_t t = TOKEN_AT(l++);
+        if (t == TOKEN_FOR_U007B_LEFT_CURLY_BRACKET) {
+          l = skip_brackets(l, n_lnats);
+          break;
+        } else if (t == TOKEN_FOR_U003B_SEMICOLON) {
+          break;
+        }
+      }
+      continue;
+
+    } else if (keyword == g_token_for_struct) {
+      emit_one(g_lnats[l]);
+      token_t type_name = TOKEN_AT(l++);
+
+      while (true) {
+        if (l >= n_lnats) {
+          return NULL;
+        }
+
+        token_t t = TOKEN_AT(l++);
+        if (t == TOKEN_FOR_U003B_SEMICOLON) {
+          break;
+        } else if (t == TOKEN_FOR_U007B_LEFT_CURLY_BRACKET) {
+          TRY(prefix_push_token(type_name));
+          l = parse_rust_struct_fields(l);
+          prefix_pop();
+          break;
+        }
+      }
+
+    } else if ((keyword == g_token_for_impl) ||  //
+               (keyword == g_token_for_mod) ||   //
+               (keyword == g_token_for_trait)) {
+      if (TOKEN_AT(l) == TOKEN_FOR_U003C_LESS_THAN_SIGN) {
+        l = skip_brackets_pointy(l + 1u, n_lnats, true);
+        if (l >= n_lnats) {
+          return NULL;
+        }
+      }
+      while ((l < n_lnats) && (TOKEN_AT(l) == TOKEN_FOR_U0026_AMPERSAND)) {
+        l++;
+        if (((l + 1u) < n_lnats) &&
+            (TOKEN_AT(l) == TOKEN_FOR_U0027_APOSTROPHE)) {
+          l += 2u;
+        }
+      }
+      uint32_t l_of_typename = namey_token_or_impl(l++);
+
+      while (true) {
+        if (l >= n_lnats) {
+          return NULL;
+        }
+
+        token_t t = TOKEN_AT(l++);
+        if (t == TOKEN_FOR_U007B_LEFT_CURLY_BRACKET) {
+          uint32_t l0 = l_of_typename + 0u;
+          uint32_t l1 = l_of_typename + 1u;
+
+          if (keyword == g_token_for_trait) {
+            emit_one(g_lnats[l_of_typename]);
+          } else if (keyword == g_token_for_impl) {
+            while (((l1 + 1u) < n_lnats) &&
+                   (TOKEN_AT(l1) == TOKEN_FOR_OPERATOR_COLON_COLON) &&
+                   (token_is_namey(TOKEN_AT(l1 + 1u)))) {
+              l1 += 2u;
+            }
+          }
+
+          TRY(prefix_push_range(l0, l1));
+          if (bracket_depth >= 0xFFFFu) {
+            return err_ana_toomancb;
+          }
+          bracket_depth++;
+          break;
+
+        } else if (t == g_token_for_for) {
+          while ((l < n_lnats) && (TOKEN_AT(l) == TOKEN_FOR_U0026_AMPERSAND)) {
+            l++;
+            if (((l + 1u) < n_lnats) &&
+                (TOKEN_AT(l) == TOKEN_FOR_U0027_APOSTROPHE)) {
+              l += 2u;
+            }
+          }
+          if (l < n_lnats) {
+            l_of_typename = namey_token_or_impl(l++);
+          }
+
+        } else if ((bracket_depth == 0u) && (t == TOKEN_FOR_U003B_SEMICOLON)) {
+          break;
+        }
+      }
+    }
+  }
+
+  return NULL;
+}
+
+// --------
+
 typedef error_message_t (*analyzer)(void);
 
 static analyzer  //
 guess_language_family(void) {
   if (g_has_preprocess_directive) {
     return &analyze_c;
+  } else if (g_has_rust_attribute) {
+    return &analyze_rust;
   }
 
   token_t t0 = (n_lnats > 0u) ? TOKEN_AT(0) : 0u;
@@ -1863,6 +2123,11 @@ guess_language_family(void) {
         (t == g_token_for_int) ||   //
         (t == g_token_for_void)) {
       return &analyze_c;
+    } else if ((t == g_token_for_fn) ||    //
+               (t == g_token_for_impl) ||  //
+               (t == g_token_for_mod) ||   //
+               (t == g_token_for_pub)) {
+      return &analyze_rust;
     }
   }
 
@@ -1878,6 +2143,9 @@ looks_like_bash_python_etc(void) {
     return false;
   }
   if ((p >= g_input_end) || (*p++ != '!')) {
+    return false;
+  }
+  if ((p >= g_input_end) || (*p++ == '[')) {
     return false;
   }
   return true;
