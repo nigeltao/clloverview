@@ -1,0 +1,1 @@
+main    = "test/golden/rbe_comment.rs:3";

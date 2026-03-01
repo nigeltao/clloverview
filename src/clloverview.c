@@ -383,6 +383,8 @@ static uint32_t n_string_contents = 0u;
 static bool g_has_preprocess_directive = false;
 static bool g_has_rust_attribute = false;
 
+static bool g_looks_rusty_prior_to_tokenization = false;
+
 #define G_PREFIX_MARKS_SIZE 64
 static struct {
   uint32_t n_marks;
@@ -846,13 +848,21 @@ restart_next_token:
 
     } else if (*p == '*') {  // Slash-star comment.
       p++;
-      for (;; p++) {
+      for (uint32_t depth = 1u; depth > 0u;) {
         if (p >= (g_input_end - 1)) {
           return err_tok_slashwnt;
         } else if ((p[0] == '*') && (p[1] == '/')) {
           p += 2;
-          break;
-        } else if (p[0] == '\n') {
+          depth--;
+          continue;
+        } else if ((p[0] == '/') && (p[1] == '*') &&
+                   g_looks_rusty_prior_to_tokenization) {
+          p += 2;
+          depth++;
+          continue;
+        }
+
+        if (*p++ == '\n') {
           g_line_number++;
           if (g_line_number >= MAX_EXCL_LINE_NUMBER) {
             return err_tok_itllines;
@@ -2135,6 +2145,81 @@ guess_language_family(void) {
 }
 
 static bool  //
+guess_rustiness_prior_to_tokenization(const char* data_ptr,
+                                      const size_t data_len) {
+  size_t n = data_len;
+  if (n > 32768u) {
+    n = 32768u;
+  } else if (n < 8u) {
+    return false;
+  }
+  const char* p = data_ptr;
+  const char* q = data_ptr + (n - 8u);
+
+  int32_t score = 0;
+  for (; p != q; p++) {
+    if (*p != '\n') {
+      continue;
+    }
+
+    switch (p[1]) {
+      case '#':
+        if ((p[2] == '!') || (p[2] == '[')) {
+          score++;
+        } else if (!memcmp(p + 1, "defi", 4) ||  //
+                   !memcmp(p + 1, "ifde", 4) ||  //
+                   !memcmp(p + 1, "ifnd", 4) ||  //
+                   !memcmp(p + 1, "impo", 4) ||  //
+                   !memcmp(p + 1, "incl", 4) ||  //
+                   !memcmp(p + 1, "prag", 4)) {
+          score--;
+        }
+        break;
+
+      case 'c':
+        if (!memcmp(p + 1, "char ", 5)) {
+          score--;
+        }
+        break;
+
+      case 'f':
+        if (!memcmp(p + 1, "fn ", 3)) {
+          score++;
+        }
+        break;
+
+      case 'i':
+        if (!memcmp(p + 1, "impl ", 5)) {
+          score++;
+        } else if (!memcmp(p + 1, "int ", 4)) {
+          score--;
+        }
+        break;
+
+      case 'm':
+        if (!memcmp(p + 1, "mod ", 4)) {
+          score++;
+        }
+        break;
+
+      case 'p':
+        if (!memcmp(p + 1, "pub ", 4)) {
+          score++;
+        }
+        break;
+
+      case 'v':
+        if (!memcmp(p + 1, "void ", 5)) {
+          score--;
+        }
+        break;
+    }
+  }
+
+  return score > 0;
+}
+
+static bool  //
 looks_like_bash_python_etc(void) {
   const char* p = g_input_ptr;
   for (; (p < g_input_end) && (*p <= ' '); p++) {
@@ -2159,6 +2244,8 @@ process_file_contents(const char* data_ptr, const size_t data_len) {
   if (looks_like_bash_python_etc()) {
     return NULL;
   }
+  g_looks_rusty_prior_to_tokenization =
+      guess_rustiness_prior_to_tokenization(data_ptr, data_len);
   TRY(tokenize());
   analyzer a = guess_language_family();
   if (a == NULL) {

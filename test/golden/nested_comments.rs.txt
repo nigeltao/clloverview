@@ -1,0 +1,1 @@
+g       = "test/golden/nested_comments.rs:6";
