@@ -1938,6 +1938,23 @@ namey_token_or_impl(uint32_t l) {
 }
 
 static uint32_t  //
+parse_rust_enum_fields(uint32_t l) {
+  while (l < n_lnats) {
+    token_t t = TOKEN_AT(l++);
+    if (t == TOKEN_FOR_U007D_RIGHT_CURLY_BRACKET) {
+      break;
+    } else if ((t == TOKEN_FOR_U0028_LEFT_PARENTHESIS) ||     //
+               (t == TOKEN_FOR_U005B_LEFT_SQUARE_BRACKET) ||  //
+               (t == TOKEN_FOR_U007B_LEFT_CURLY_BRACKET)) {
+      l = skip_brackets(l, n_lnats);
+    } else if (token_is_namey(t)) {
+      emit_one(g_lnats[l - 1u]);
+    }
+  }
+  return l;
+}
+
+static uint32_t  //
 parse_rust_struct_fields(uint32_t l) {
   while (l < n_lnats) {
     token_t t = TOKEN_AT(l++);
@@ -2003,7 +2020,8 @@ analyze_rust(void) {
       }
       continue;
 
-    } else if (keyword == g_token_for_struct) {
+    } else if ((keyword == g_token_for_enum) ||  //
+               (keyword == g_token_for_struct)) {
       emit_one(g_lnats[l]);
       token_t type_name = TOKEN_AT(l++);
 
@@ -2017,7 +2035,8 @@ analyze_rust(void) {
           break;
         } else if (t == TOKEN_FOR_U007B_LEFT_CURLY_BRACKET) {
           TRY(prefix_push_token(type_name));
-          l = parse_rust_struct_fields(l);
+          l = (keyword == g_token_for_enum) ? parse_rust_enum_fields(l)
+                                            : parse_rust_struct_fields(l);
           prefix_pop();
           break;
         }
@@ -2118,12 +2137,15 @@ guess_language_family(void) {
   } else if ((t0 == g_token_for_using) ||      //
              (t0 == g_token_for_namespace) ||  //
              (t0 == g_token_for_class) ||      //
-             (t0 == g_token_for_enum) ||       //
              (t0 == g_token_for_interface) ||  //
              (t1 == g_token_for_class) ||      //
-             (t1 == g_token_for_enum) ||       //
              (t1 == g_token_for_interface)) {
     return &analyze_csharp_java;
+
+  } else if ((t0 == g_token_for_enum) ||  //
+             (t1 == g_token_for_enum)) {
+    return g_looks_rusty_prior_to_tokenization ? &analyze_rust
+                                               : &analyze_csharp_java;
   }
 
   uint32_t n = min_u32(n_lnats, 64u);

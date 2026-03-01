@@ -1,0 +1,8 @@
+WebEvent        = "test/golden/rbe_enum.rs:7";
+WebEvent.PageLoad       = "test/golden/rbe_enum.rs:9";
+WebEvent.PageUnload     = "test/golden/rbe_enum.rs:10";
+WebEvent.KeyPress       = "test/golden/rbe_enum.rs:12";
+WebEvent.Paste  = "test/golden/rbe_enum.rs:13";
+WebEvent.Click  = "test/golden/rbe_enum.rs:15";
+inspect = "test/golden/rbe_enum.rs:20";
+main    = "test/golden/rbe_enum.rs:34";
