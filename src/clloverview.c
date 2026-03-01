@@ -2179,59 +2179,71 @@ guess_rustiness_prior_to_tokenization(const char* data_ptr,
   const char* q = data_ptr + (n - 8u);
 
   int32_t score = 0;
-  for (; p != q; p++) {
-    if (*p != '\n') {
+  while (p != q) {
+    if (*p++ != '\n') {
       continue;
     }
 
-    switch (p[1]) {
+    switch (*p) {
       case '#':
-        if ((p[2] == '!') || (p[2] == '[')) {
+        if ((p[1] == '!') || (p[1] == '[')) {
           score++;
-        } else if (!memcmp(p + 1, "defi", 4) ||  //
-                   !memcmp(p + 1, "ifde", 4) ||  //
-                   !memcmp(p + 1, "ifnd", 4) ||  //
-                   !memcmp(p + 1, "impo", 4) ||  //
-                   !memcmp(p + 1, "incl", 4) ||  //
-                   !memcmp(p + 1, "prag", 4)) {
+        } else if (!memcmp(p, "defi", 4) ||  //
+                   !memcmp(p, "ifde", 4) ||  //
+                   !memcmp(p, "ifnd", 4) ||  //
+                   !memcmp(p, "impo", 4) ||  //
+                   !memcmp(p, "incl", 4) ||  //
+                   !memcmp(p, "prag", 4)) {
           score--;
         }
         break;
 
       case 'c':
-        if (!memcmp(p + 1, "char ", 5)) {
+        if (!memcmp(p, "char ", 5)) {
+          score--;
+        } else if (!memcmp(p, "class ", 6)) {
           score--;
         }
         break;
 
       case 'f':
-        if (!memcmp(p + 1, "fn ", 3)) {
+        if (!memcmp(p, "fn ", 3)) {
           score++;
         }
         break;
 
       case 'i':
-        if (!memcmp(p + 1, "impl ", 5)) {
+        if (!memcmp(p, "impl ", 5)) {
           score++;
-        } else if (!memcmp(p + 1, "int ", 4)) {
+        } else if (!memcmp(p, "int ", 4)) {
           score--;
         }
         break;
 
       case 'm':
-        if (!memcmp(p + 1, "mod ", 4)) {
+        if (!memcmp(p, "mod ", 4)) {
           score++;
+        }
+        break;
+
+      case 'n':
+        if (!memcmp(p, "namesp", 6)) {
+          score--;
         }
         break;
 
       case 'p':
-        if (!memcmp(p + 1, "pub ", 4)) {
+        if (!memcmp(p, "packag", 6)) {
+          score--;
+        } else if (!memcmp(p, "pub ", 4)) {
           score++;
+        } else if (!memcmp(p, "publ", 4)) {
+          score--;
         }
         break;
 
       case 'v':
-        if (!memcmp(p + 1, "void ", 5)) {
+        if (!memcmp(p, "void ", 5)) {
           score--;
         }
         break;
