@@ -1,0 +1,3 @@
+CommandReaderBuilder.new        = "test/golden/ripgrep_cli_process.rs:5";
+CommandReaderBuilder.build      = "test/golden/ripgrep_cli_process.rs:9";
+CommandReaderBuilder.async_stderr       = "test/golden/ripgrep_cli_process.rs:25";

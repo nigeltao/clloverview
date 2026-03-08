@@ -63,6 +63,7 @@ static error_message_t err_com_unsuflag = "command line: unsupported flag";
 static error_message_t err_com_unsuname = "command line: unsupported input filename";
 static error_message_t err_int_badargum = "internal: bad argument";
 static error_message_t err_int_endoffil = "internal: end of file";
+static error_message_t err_int_notaraws = "internal: not a raw string";
 static error_message_t err_pre_baddirec = "preprocess: bad directive";
 static error_message_t err_pre_badmacde = "preprocess: bad macro definition";
 static error_message_t err_pre_badmacun = "preprocess: bad macro undefinition";
@@ -765,8 +766,10 @@ next_rust_raw_string_token(const char* p) {
   for (; (p < g_input_end) && (*p == '#'); p++) {
     num_hashes++;
   }
-  if ((p >= g_input_end) || (*p++ != '"')) {
+  if (p >= g_input_end) {
     return err_tok_quotewnt;
+  } else if (*p++ != '"') {
+    return err_int_notaraws;
   }
 
   while (true) {
@@ -833,7 +836,12 @@ restart_next_token:
         g_looks_rusty_prior_to_tokenization &&  //
         ((p + 1) < g_input_end) &&              //
         ((p[1] == '"') || (p[1] == '#'))) {
-      return next_rust_raw_string_token(p + 1);
+      error_message_t err = next_rust_raw_string_token(p + 1);
+      if (err != err_int_notaraws) {
+        return err;
+      }
+      p++;
+      packed_utf8 = decode_utf8_rune(p, g_input_end);
     }
 
     const char* original_p = p;
@@ -1370,6 +1378,14 @@ emit_one(line_number_and_token_t lnat) {
   const char* token_str = token_as_cstring(token);
   uint32_t n = count_utf8_runes(g_prefix.array, g_prefix.n_array) +
                count_utf8_runes(token_str, token_length(token));
+
+  if (*token_str == '#') {
+    // Assume that we have a "r#foo" Rust raw identifier, which was tokenized
+    // as a "#foo" namey token.
+    token_str++;
+    n--;
+  }
+
   printf("%s%s%s%s%s%s:%" PRIu32 "\";\n",     //
          g_prefix.array,                      //
          g_color_code0 ? g_color_code0 : "",  //
@@ -2223,10 +2239,6 @@ guess_rustiness_prior_to_tokenization(const char* data_ptr,
 
   int32_t score = 0;
   while (p != q) {
-    if (*p++ != '\n') {
-      continue;
-    }
-
     switch (*p) {
       case '#':
         if ((p[1] == '!') || (p[1] == '[')) {
@@ -2291,6 +2303,9 @@ guess_rustiness_prior_to_tokenization(const char* data_ptr,
           score--;
         }
         break;
+    }
+
+    while ((p != q) && (*p++ != '\n')) {
     }
   }
 
