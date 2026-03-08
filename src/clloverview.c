@@ -645,7 +645,9 @@ next_rust_attribute_token(const char* p) {
         return p + 1;
       }
     } else if (*p < ' ') {
-      return NULL;
+      if ((*p != '\t') && (*p != '\n') && (*p != '\r')) {
+        return NULL;
+      }
     }
     // TODO: brackets inside quoted strings.
   }
