@@ -758,6 +758,40 @@ next_quote_token(const char* p, const char quote) {
 }
 
 static error_message_t  //
+next_rust_raw_string_token(const char* p) {
+  uint32_t num_hashes = 0u;
+  for (; (p < g_input_end) && (*p == '#'); p++) {
+    num_hashes++;
+  }
+  if ((p >= g_input_end) || (*p++ != '"')) {
+    return err_tok_quotewnt;
+  }
+
+  while (true) {
+    while (true) {
+      if (p >= g_input_end) {
+        return err_tok_quotewnt;
+      } else if (*p++ == '"') {
+        break;
+      }
+    }
+
+    const char* q = p;
+    for (uint32_t n = num_hashes;; n--) {
+      if (n == 0) {
+        g_input_ptr = q;
+        g_token = TOKEN_FOR_PLACEHOLDER_STRING;
+        return NULL;
+      } else if (q >= g_input_end) {
+        return err_tok_quotewnt;
+      } else if (*q++ != '#') {
+        break;
+      }
+    }
+  }
+}
+
+static error_message_t  //
 next_token(bool return_line_feed_as_a_token) {
   /// Parses the next token. As a side effect, it updates g_input_ptr, g_token
   /// and g_line_number.
@@ -793,6 +827,13 @@ restart_next_token:
   // Handle name and number tokens.
   uint64_t packed_utf8 = decode_utf8_rune(p, g_input_end);
   if (is_namey_rune(0x01, ((uint32_t)(packed_utf8)))) {
+    if ((((uint32_t)(packed_utf8)) == 'r') &&   //
+        g_looks_rusty_prior_to_tokenization &&  //
+        ((p + 1) < g_input_end) &&              //
+        ((p[1] == '"') || (p[1] == '#'))) {
+      return next_rust_raw_string_token(p + 1);
+    }
+
     const char* original_p = p;
     while (true) {
       p += ((uint32_t)(packed_utf8 >> 32));
@@ -2235,7 +2276,8 @@ guess_rustiness_prior_to_tokenization(const char* data_ptr,
       case 'p':
         if (!memcmp(p, "packag", 6)) {
           score--;
-        } else if (!memcmp(p, "pub ", 4)) {
+        } else if (!memcmp(p, "pub ", 4) ||  //
+                   !memcmp(p, "pub(", 4)) {
           score++;
         } else if (!memcmp(p, "publ", 4)) {
           score--;
