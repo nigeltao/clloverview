@@ -1649,6 +1649,10 @@ analyze_c(void) {
       l0 = l;
       continue;
 
+    } else if (t == TOKEN_FOR_U003C_LESS_THAN_SIGN) {
+      l = skip_brackets_pointy(l, n_lnats, true);
+      continue;
+
     } else if ((t == g_token_for_import) || (t == g_token_for_using)) {
       while (true) {
         if (l >= n_lnats) {
@@ -1680,6 +1684,10 @@ analyze_c(void) {
           TRY(prefix_push_string("_type_name_", 11));
         }
       } else {
+        while (((l + 1u) < n_lnats) && (token_is_namey(TOKEN_AT(l + 1u)))) {
+          class_name = TOKEN_AT(l + 1u);
+          l++;
+        }
         emit_one(g_lnats[l++]);
         TRY(prefix_push_token(class_name));
       }

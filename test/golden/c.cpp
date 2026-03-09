@@ -109,3 +109,10 @@ Structor Structor::operator+(const Structor& other) const {
 template <typename OutputIt, typename... T>
 auto format_to_n(OutputIt out, size_t n, format_string<T...> fmt, T&&... args)
     -> format_to_n_result<OutputIt>;
+
+std::unique_ptr<struct S> Sssify(int x, int y) {
+  int z;
+  return nullptr;
+}
+
+struct S s_instance;

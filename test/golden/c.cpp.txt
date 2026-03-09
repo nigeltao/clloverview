@@ -55,3 +55,5 @@ Structor.Structor       = "test/golden/c.cpp:101";
 Structor.Structor       = "test/golden/c.cpp:102";
 Structor.operator       = "test/golden/c.cpp:104";
 format_to_n     = "test/golden/c.cpp:110";
+Sssify  = "test/golden/c.cpp:113";
+s_instance      = "test/golden/c.cpp:118";
