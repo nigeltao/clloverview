@@ -1576,6 +1576,25 @@ skip_past_go_semicolon(uint32_t l0, uint32_t l1) {
 
 // --------
 
+static uint32_t  //
+parse_enum_fields(uint32_t l) {
+  while (l < n_lnats) {
+    token_t t = TOKEN_AT(l++);
+    if (t == TOKEN_FOR_U007D_RIGHT_CURLY_BRACKET) {
+      break;
+    } else if ((t == TOKEN_FOR_U0028_LEFT_PARENTHESIS) ||     //
+               (t == TOKEN_FOR_U005B_LEFT_SQUARE_BRACKET) ||  //
+               (t == TOKEN_FOR_U007B_LEFT_CURLY_BRACKET)) {
+      l = skip_brackets(l, n_lnats);
+    } else if (token_is_namey(t)) {
+      emit_one(g_lnats[l - 1u]);
+    }
+  }
+  return l;
+}
+
+// --------
+
 static error_message_t  //
 analyze_c_thing(uint32_t l0, uint32_t l1) {
   /// Analyzes a 'line' of C / C++ / etc code, the token range l0 .. l1, where
@@ -1658,6 +1677,43 @@ analyze_c(void) {
         if (l >= n_lnats) {
           return NULL;
         } else if (TOKEN_AT(l++) == TOKEN_FOR_U003B_SEMICOLON) {
+          break;
+        }
+      }
+      l0 = l;
+      continue;
+
+    } else if (t == g_token_for_enum) {
+      if (l >= n_lnats) {
+        return NULL;
+      }
+      bool is_enum_class = TOKEN_AT(l) == g_token_for_class;
+      token_t type_name = 0;
+      if (token_is_namey(TOKEN_AT(l))) {
+        while (((l + 1u) < n_lnats) && (token_is_namey(TOKEN_AT(l + 1u)))) {
+          l++;
+        }
+        emit_one(g_lnats[l]);
+        type_name = is_enum_class ? TOKEN_AT(l) : 0;
+        l++;
+      }
+
+      while (true) {
+        if (l >= n_lnats) {
+          return NULL;
+        }
+
+        token_t t = TOKEN_AT(l++);
+        if (t == TOKEN_FOR_U003B_SEMICOLON) {
+          break;
+        } else if (t == TOKEN_FOR_U007B_LEFT_CURLY_BRACKET) {
+          if (type_name != 0) {
+            TRY(prefix_push_token(type_name));
+          }
+          l = parse_enum_fields(l);
+          if (type_name != 0) {
+            prefix_pop();
+          }
           break;
         }
       }
@@ -2005,23 +2061,6 @@ namey_token_or_impl(uint32_t l) {
 }
 
 static uint32_t  //
-parse_rust_enum_fields(uint32_t l) {
-  while (l < n_lnats) {
-    token_t t = TOKEN_AT(l++);
-    if (t == TOKEN_FOR_U007D_RIGHT_CURLY_BRACKET) {
-      break;
-    } else if ((t == TOKEN_FOR_U0028_LEFT_PARENTHESIS) ||     //
-               (t == TOKEN_FOR_U005B_LEFT_SQUARE_BRACKET) ||  //
-               (t == TOKEN_FOR_U007B_LEFT_CURLY_BRACKET)) {
-      l = skip_brackets(l, n_lnats);
-    } else if (token_is_namey(t)) {
-      emit_one(g_lnats[l - 1u]);
-    }
-  }
-  return l;
-}
-
-static uint32_t  //
 parse_rust_struct_fields(uint32_t l) {
   while (l < n_lnats) {
     token_t t = TOKEN_AT(l++);
@@ -2102,7 +2141,7 @@ analyze_rust(void) {
           break;
         } else if (t == TOKEN_FOR_U007B_LEFT_CURLY_BRACKET) {
           TRY(prefix_push_token(type_name));
-          l = (keyword == g_token_for_enum) ? parse_rust_enum_fields(l)
+          l = (keyword == g_token_for_enum) ? parse_enum_fields(l)
                                             : parse_rust_struct_fields(l);
           prefix_pop();
           break;

@@ -116,3 +116,9 @@ std::unique_ptr<struct S> Sssify(int x, int y) {
 }
 
 struct S s_instance;
+
+enum english_number { one, two, three } en;
+
+typedef enum { un, deux, trois } fr;
+
+enum class german_number { eins, zwei, drei };
