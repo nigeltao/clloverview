@@ -386,7 +386,31 @@ static bool g_has_rust_attribute = false;
 
 static bool g_looks_rusty_prior_to_tokenization = false;
 
-#define G_PREFIX_MARKS_SIZE 64
+#define G_PREPRO_IF_ELSE_ABLED_SIZE 64u
+static struct {
+  uint32_t n_disabled;
+  uint32_t n_abled;
+  bool abled[G_PREPRO_IF_ELSE_ABLED_SIZE];
+} g_prepro_if_else = {0};
+/// The stack of active "#if", "ifdef", "#ifndef", "#else", "#elif" and
+/// "#endif" preprocessor directives.
+///
+/// abled[i] being true or false means that token output is enabled or disabled
+/// for this branch. Output is disabled inside an "#if 0" or "#elif 0" branch,
+/// or for an "#else" or "#elif" branch following an enabled branch.
+///
+/// This program treats anything that's not "#if 0", (such as "#if foo",
+/// "#ifdef foo" or "#if bar > baz") as equivalent to "#if 1".
+///
+/// (§). In the future, we may be more sophisticated in the way we treat "#if
+/// defined(foo)", depending on whether or not "foo" is actually defined. But
+/// for now, the simple heuristic of always taking the first non-"#if 0"
+/// branch works well enough, similar to the ctags command-line tool.
+///
+/// n_abled is the stack depth. n_disabled is the count of those n_abled abled
+/// entries that are false (disabled).
+
+#define G_PREFIX_MARKS_SIZE 64u
 static struct {
   uint32_t n_marks;
   uint32_t n_array;
@@ -401,15 +425,22 @@ static struct {
 /// g_prefix.marks[0] is 0, the offset of the 'f', and g_prefix.marks[1] is 4,
 /// the offset of the 'b'.
 
+static token_t g_token_for_0 = 0u;
 static token_t g_token_for_char = 0u;
 static token_t g_token_for_class = 0u;
 static token_t g_token_for_const = 0u;
 static token_t g_token_for_default = 0u;
 static token_t g_token_for_define = 0u;
+static token_t g_token_for_else = 0u;
+static token_t g_token_for_elif = 0u;
+static token_t g_token_for_endif = 0u;
 static token_t g_token_for_enum = 0u;
 static token_t g_token_for_fn = 0u;
 static token_t g_token_for_for = 0u;
 static token_t g_token_for_func = 0u;
+static token_t g_token_for_if = 0u;
+static token_t g_token_for_ifdef = 0u;
+static token_t g_token_for_ifndef = 0u;
 static token_t g_token_for_impl = 0u;
 static token_t g_token_for_import = 0u;
 static token_t g_token_for_int = 0u;
@@ -446,6 +477,10 @@ static token_t g_macro_definitions[G_MACRO_DEFINITIONS_SIZE] = {0};
 /// meaning a macro with two arguments, followed by 1st_macro_argument, plus,
 /// k, star, 2nd_macro_argument, 0.
 ///
+/// For now, g_macro_definitions is currently written to but never read (unless
+/// DEBUG_DUMP_DEFINES is true). In the future, we may be more sophisticated
+/// about #if/#else macro processing, per (§).
+///
 /// 256 KiB = 64 Ki elements × 4 bytes per element.
 
 #define G_HASH_TABLE_SIZE 262144
@@ -481,8 +516,11 @@ reset_global_tokenizer_state(void) {
   g_has_preprocess_directive = false;
   g_has_rust_attribute = false;
 
-  g_prefix.n_marks = 0;
-  g_prefix.n_array = 0;
+  g_prepro_if_else.n_disabled = 0u;
+  g_prepro_if_else.n_abled = 0u;
+
+  g_prefix.n_marks = 0u;
+  g_prefix.n_array = 0u;
   g_prefix.array[0] = 0;
 
   g_macro_definitions[0] = 0u;
@@ -508,6 +546,7 @@ jenkins(const char* s_ptr, size_t s_len) {
   return hash;
 }
 
+#define INTERNALIZE_INTEGER(s) (internalize(s, strlen(s), false), g_token)
 #define INTERNALIZE_NAME(s) (internalize(s, strlen(s), true), g_token)
 /// s should be a compile-time string literal (and so cannot fail with
 /// err_tok_tokistol).
@@ -564,15 +603,23 @@ internalize(const char* s_ptr, size_t s_len, bool namey) {
 
 static void  //
 internalize_well_known_names(void) {
+  g_token_for_0 = INTERNALIZE_INTEGER("0");
+
   g_token_for_char = INTERNALIZE_NAME("char");
   g_token_for_class = INTERNALIZE_NAME("class");
   g_token_for_const = INTERNALIZE_NAME("const");
   g_token_for_default = INTERNALIZE_NAME("default");
   g_token_for_define = INTERNALIZE_NAME("define");
+  g_token_for_elif = INTERNALIZE_NAME("elif");
+  g_token_for_else = INTERNALIZE_NAME("else");
+  g_token_for_endif = INTERNALIZE_NAME("endif");
   g_token_for_enum = INTERNALIZE_NAME("enum");
   g_token_for_fn = INTERNALIZE_NAME("fn");
   g_token_for_for = INTERNALIZE_NAME("for");
   g_token_for_func = INTERNALIZE_NAME("func");
+  g_token_for_if = INTERNALIZE_NAME("if");
+  g_token_for_ifdef = INTERNALIZE_NAME("ifdef");
+  g_token_for_ifndef = INTERNALIZE_NAME("ifndef");
   g_token_for_impl = INTERNALIZE_NAME("impl");
   g_token_for_import = INTERNALIZE_NAME("import");
   g_token_for_int = INTERNALIZE_NAME("int");
@@ -1111,11 +1158,18 @@ preprocess_define(void) {
   return NULL;
 }
 
-static error_message_t  //
-preprocess_undef(void) {
-  token_t name = 0u;
+static token_t g_preprocess_readline_result = 0u;
 
-  while (true) {
+static error_message_t  //
+preprocess_readline(void) {
+  /// Consumes the rest of the preprocessor directive (to the end of the line).
+  /// As a side effect, it sets g_preprocess_readline_result to the token for
+  /// that rest of the line, if the line was a single token. For example, it
+  /// will return the "foobar" for "#if foobar" or "#undef foobar".
+
+  g_preprocess_readline_result = 0u;
+
+  for (bool first = true;; first = false) {
     error_message_t err = next_token(true);
     if (err == NULL) {
       // No-op.
@@ -1127,15 +1181,22 @@ preprocess_undef(void) {
 
     if (g_token == TOKEN_FOR_U000A_LINE_FEED) {
       break;
+    } else if (first) {
+      g_preprocess_readline_result = g_token;
+    } else {
+      g_preprocess_readline_result = 0u;
     }
-
-    if ((name != 0u) || !token_is_namey(g_token)) {
-      return err_pre_badmacun;
-    }
-    name = g_token;
   }
 
-  if (name == 0u) {
+  return NULL;
+}
+
+static error_message_t  //
+preprocess_undef(void) {
+  TRY(preprocess_readline());
+  token_t name = g_preprocess_readline_result;
+
+  if ((name == 0u) || !token_is_namey(name)) {
     return err_pre_badmacun;
   }
 
@@ -1156,6 +1217,57 @@ preprocess_undef(void) {
 }
 
 static error_message_t  //
+preprocess_elif(bool arg_is_zero) {
+  if (g_prepro_if_else.n_abled <= 0u) {
+    return NULL;
+  }
+
+  uint32_t i = g_prepro_if_else.n_abled - 1u;
+  if (g_prepro_if_else.abled[i]) {
+    g_prepro_if_else.abled[i] = false;
+    g_prepro_if_else.n_disabled++;
+  } else if (!arg_is_zero) {
+    g_prepro_if_else.abled[i] = true;
+    g_prepro_if_else.n_disabled--;
+  }
+  return NULL;
+}
+
+static error_message_t  //
+preprocess_if(token_t directive) {
+  TRY(preprocess_readline());
+  token_t argument = g_preprocess_readline_result;
+
+  if (directive == g_token_for_else) {
+    return preprocess_elif(false);
+
+  } else if (directive == g_token_for_elif) {
+    return preprocess_elif(argument == g_token_for_0);
+
+  } else if (directive == g_token_for_endif) {
+    if (g_prepro_if_else.n_abled > 0u) {
+      uint32_t i = g_prepro_if_else.n_abled - 1u;
+      g_prepro_if_else.n_abled = i;
+      g_prepro_if_else.n_disabled -= g_prepro_if_else.abled[i] ? 0u : 1u;
+    }
+    return NULL;
+  }
+
+  if ((g_prepro_if_else.n_abled + 1u) >= G_PREFIX_MARKS_SIZE) {
+    return err_tok_itlnestd;
+  }
+
+  bool enabled = (directive == g_token_for_ifdef) ||   //
+                 (directive == g_token_for_ifndef) ||  //
+                 (argument != g_token_for_0);
+  g_prepro_if_else.abled[g_prepro_if_else.n_abled] = enabled;
+  g_prepro_if_else.n_abled++;
+  g_prepro_if_else.n_disabled += enabled ? 0u : 1u;
+
+  return NULL;
+}
+
+static error_message_t  //
 preprocess(void) {
   error_message_t err = next_token(false);
   if (err == NULL) {
@@ -1169,6 +1281,17 @@ preprocess(void) {
   token_t directive = g_token;
   if (!token_is_namey(directive)) {
     return err_pre_baddirec;
+  } else if ((directive == g_token_for_elif) ||   //
+             (directive == g_token_for_else) ||   //
+             (directive == g_token_for_endif) ||  //
+             (directive == g_token_for_if) ||     //
+             (directive == g_token_for_ifdef) ||  //
+             (directive == g_token_for_ifndef)) {
+    return preprocess_if(directive);
+  }
+
+  if (g_prepro_if_else.n_disabled > 0u) {
+    // No-op.
   } else if (directive == g_token_for_define) {
     return preprocess_define();
   } else if (directive == g_token_for_undef) {
@@ -1219,6 +1342,10 @@ tokenize(void) {
     if (g_token == TOKEN_FOR_U0023_NUMBER_SIGN) {
       TRY(preprocess());
       g_has_preprocess_directive = true;
+      continue;
+    }
+
+    if (g_prepro_if_else.n_disabled > 0u) {
       continue;
     }
 

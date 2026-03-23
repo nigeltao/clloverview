@@ -1,0 +1,8 @@
+IF_ZERO_INCLUDE_GUARD   = "test/golden/if_zero.c:2";
+aa      = "test/golden/if_zero.c:9";
+bb      = "test/golden/if_zero.c:17";
+c       = "test/golden/if_zero.c:23";
+dc      = "test/golden/if_zero.c:30";
+e       = "test/golden/if_zero.c:35";
+f       = "test/golden/if_zero.c:37";
+g       = "test/golden/if_zero.c:39";
