@@ -6,3 +6,5 @@ dc      = "test/golden/if_zero.c:30";
 e       = "test/golden/if_zero.c:35";
 f       = "test/golden/if_zero.c:37";
 g       = "test/golden/if_zero.c:39";
+foo     = "test/golden/if_zero.c:45";
+bar     = "test/golden/if_zero.c:46";

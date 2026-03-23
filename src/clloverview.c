@@ -435,6 +435,7 @@ static token_t g_token_for_else = 0u;
 static token_t g_token_for_elif = 0u;
 static token_t g_token_for_endif = 0u;
 static token_t g_token_for_enum = 0u;
+static token_t g_token_for_extern = 0u;
 static token_t g_token_for_fn = 0u;
 static token_t g_token_for_for = 0u;
 static token_t g_token_for_func = 0u;
@@ -614,6 +615,7 @@ internalize_well_known_names(void) {
   g_token_for_else = INTERNALIZE_NAME("else");
   g_token_for_endif = INTERNALIZE_NAME("endif");
   g_token_for_enum = INTERNALIZE_NAME("enum");
+  g_token_for_extern = INTERNALIZE_NAME("extern");
   g_token_for_fn = INTERNALIZE_NAME("fn");
   g_token_for_for = INTERNALIZE_NAME("for");
   g_token_for_func = INTERNALIZE_NAME("func");
@@ -1410,6 +1412,20 @@ prefix_pop(void) {
 }
 
 static error_message_t  //
+prefix_push_empty(void) {
+  /// Pushes "" on the prefix stack.
+
+  if ((g_prefix.n_marks + 1u) >= G_PREFIX_MARKS_SIZE) {
+    return err_tok_itlnestd;
+  }
+
+  g_prefix.marks[g_prefix.n_marks] = ((uint16_t)(g_prefix.n_array));
+  g_prefix.n_marks++;
+
+  return NULL;
+}
+
+static error_message_t  //
 prefix_push_string(const char* s_ptr, size_t s_len) {
   /// Pushes s and then a "." on the prefix stack.
 
@@ -1845,6 +1861,15 @@ analyze_c(void) {
         }
       }
       l0 = l;
+      continue;
+
+    } else if (t == g_token_for_extern) {
+      if (((l + 1u) < n_lnats) &&
+          (TOKEN_AT(l + 0u) == TOKEN_FOR_PLACEHOLDER_STRING) &&
+          (TOKEN_AT(l + 1u) == TOKEN_FOR_U007B_LEFT_CURLY_BRACKET)) {
+        TRY(prefix_push_empty());
+        l += 2u;
+      }
       continue;
 
     } else if ((t != g_token_for_class) &&   //

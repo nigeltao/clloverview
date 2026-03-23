@@ -2,7 +2,7 @@
 #define IF_ZERO_INCLUDE_GUARD
 
 #ifdef __cplusplus
-//extern "C" {
+extern "C" {
 #endif
 
 #if 1
@@ -39,7 +39,10 @@ int f;
 int g = 0;
 
 #ifdef __cplusplus
-//}
+}
 #endif
+
+void foo(int);
+extern "C" void bar(int);
 
 #endif  // IF_ZERO_INCLUDE_GUARD
