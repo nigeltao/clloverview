@@ -376,6 +376,8 @@ static token_t g_token = 0u;
 static uint32_t g_line_number = 0u;
 #define MAX_EXCL_LINE_NUMBER 0x80000000u
 
+static uint32_t i_emittable_definitions = 0u;
+static uint32_t n_emittable_definitions = 0u;
 static uint32_t n_macro_definitions = 0u;
 static uint32_t n_hash_table = 0u;
 static uint32_t n_lnats = 0u;
@@ -466,6 +468,12 @@ static token_t g_token_for_using = 0u;
 static token_t g_token_for_var = 0u;
 static token_t g_token_for_void = 0u;
 
+#define G_EMITTABLE_DEFINITIONS_SIZE 16384
+static line_number_and_token_t
+    g_emittable_definitions[G_EMITTABLE_DEFINITIONS_SIZE] = {0};
+/// A list (sorted by line number) of "#define foo bar" lines to emit. The
+/// token is the "foo".
+
 #define G_MACRO_DEFINITIONS_SIZE 65536
 static token_t g_macro_definitions[G_MACRO_DEFINITIONS_SIZE] = {0};
 /// g_macro_definitions[0] is always 0u (meaning an undefined macro).
@@ -516,6 +524,8 @@ reset_global_tokenizer_state(void) {
   g_token = 0u;
   g_line_number = 1u;
 
+  i_emittable_definitions = 0u;
+  n_emittable_definitions = 0u;
   n_macro_definitions = 3u;
   n_hash_table = 0u;
   n_lnats = 0u;
@@ -1082,12 +1092,14 @@ preprocess_define(void) {
       case 0:  // Initial state.
         if (!token_is_namey(g_token)) {
           return err_pre_badmacde;
-        } else if (n++ >= G_MACRO_DEFINITIONS_SIZE) {
+        } else if ((n++ >= G_MACRO_DEFINITIONS_SIZE) ||
+                   (n_emittable_definitions >= G_EMITTABLE_DEFINITIONS_SIZE)) {
           return err_pre_macroatl;
         }
         index = n_macro_definitions;
         name = g_token;
-        emit_one((((uint64_t)(g_line_number)) << 32) | ((uint64_t)(name)));
+        g_emittable_definitions[n_emittable_definitions++] =
+            (((uint64_t)(g_line_number)) << 32) | ((uint64_t)(name));
         if ((g_input_ptr < g_input_end) && (*g_input_ptr == '(')) {
           g_input_ptr++;
           state = 1;
@@ -1527,19 +1539,24 @@ prefix_push_range(uint32_t l0, uint32_t l1) {
 // --------
 
 static void  //
-emit_one(line_number_and_token_t lnat) {
+emit_ignoring_definitions(line_number_and_token_t lnat,
+                          const char* prefix_ptr,
+                          uint32_t prefix_len) {
   /// Prints one output line, `foo.bar.qux = "d/e/filename.c:12";`.
   ///
-  /// The "foo.bar." part comes from g_prefix. The "qux" and "12" parts come
-  /// from lnat. The "d/e/filename.c" is g_filename_ptr.
+  /// The "foo.bar." part comes from prefix. The "qux" and "12" parts come from
+  /// lnat. The "d/e/filename.c" is g_filename_ptr.
 
   static const char* eight_spaces_etc = "        = \"";
 
   uint32_t line_number = ((uint32_t)(lnat >> 32));
   token_t token = ((token_t)(lnat));
   const char* token_str = token_as_cstring(token);
-  uint32_t n = count_utf8_runes(g_prefix.array, g_prefix.n_array) +
-               count_utf8_runes(token_str, token_length(token));
+
+  uint32_t n = count_utf8_runes(token_str, token_length(token));
+  if (prefix_len) {
+    n += count_utf8_runes(prefix_ptr, prefix_len);
+  }
 
   if (*token_str == '#') {
     // Assume that we have a "r#foo" Rust raw identifier, which was tokenized
@@ -1549,13 +1566,31 @@ emit_one(line_number_and_token_t lnat) {
   }
 
   printf("%s%s%s%s%s%s:%" PRIu32 "\";\n",     //
-         g_prefix.array,                      //
+         prefix_ptr,                          //
          g_color_code0 ? g_color_code0 : "",  //
          token_str,                           //
          g_color_code1 ? g_color_code1 : "",  //
          &eight_spaces_etc[n & 7u],           //
          g_filename_ptr,                      //
          line_number);
+}
+
+static void  //
+emit_one(line_number_and_token_t lnat) {
+  /// Like emit_ignoring_definitions but also first emits any preceding
+  /// g_emittable_definitions. Preceding means one with a smaller line number.
+
+  for (; i_emittable_definitions < n_emittable_definitions;
+       i_emittable_definitions++) {
+    line_number_and_token_t ed_lnat =
+        g_emittable_definitions[i_emittable_definitions];
+    if ((ed_lnat >> 32) >= (lnat >> 32)) {
+      break;
+    }
+    emit_ignoring_definitions(ed_lnat, "", 0u);
+  }
+
+  emit_ignoring_definitions(lnat, g_prefix.array, g_prefix.n_array);
 }
 
 static void  //
@@ -2558,11 +2593,19 @@ process_file_contents(const char* data_ptr, const size_t data_len) {
   g_looks_rusty_prior_to_tokenization =
       guess_rustiness_prior_to_tokenization(data_ptr, data_len);
   TRY(tokenize());
+
   analyzer a = guess_language_family();
   if (a == NULL) {
     return NULL;
   }
-  return (*a)();
+  TRY((*a)());
+
+  for (uint32_t i = i_emittable_definitions; i < n_emittable_definitions; i++) {
+    emit_ignoring_definitions(g_emittable_definitions[i], "", 0u);
+  }
+  i_emittable_definitions = n_emittable_definitions;
+
+  return NULL;
 }
 
 static error_message_t  //

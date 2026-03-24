@@ -1,5 +1,4 @@
 IF_ZERO_INCLUDE_GUARD   = "test/golden/if_zero.c:2";
-THING   = "test/golden/if_zero.c:51";
 aa      = "test/golden/if_zero.c:9";
 bb      = "test/golden/if_zero.c:17";
 c       = "test/golden/if_zero.c:23";
@@ -9,3 +8,4 @@ f       = "test/golden/if_zero.c:37";
 g       = "test/golden/if_zero.c:39";
 foo     = "test/golden/if_zero.c:45";
 bar     = "test/golden/if_zero.c:46";
+THING   = "test/golden/if_zero.c:51";
