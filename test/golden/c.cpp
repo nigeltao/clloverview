@@ -122,3 +122,21 @@ enum english_number { one, two, three } en;
 typedef enum { un, deux, trois } fr;
 
 enum class german_number { eins, zwei, drei };
+
+#define SLICE(T) \
+  struct {       \
+    T* ptr;      \
+    size_t len;  \
+  }
+
+typedef SLICE(uint32_t) slice_u32;
+typedef SLICE(uint64_t) slice_u64;
+
+#if defined(__GNUC__)
+#define UNUSED __attribute__((unused))
+#else
+#define UNUSED
+#endif
+
+int four_things[4] UNUSED = {0, 1, 2, 3};
+int unloved UNUSED;

@@ -690,6 +690,20 @@ token_as_cstring(token_t t) {
   return &g_string_contents[offset + 2];
 }
 
+static bool  //
+token_cstring_is_macro_namey(const char* p) {
+  /// Returns whether p is ALL_CAPS and at least 2 characters long.
+
+  const char* p0 = p;
+  for (; *p; p++) {
+    if ((*p != '_') && ((*p < 'A') || ('Z' < *p))) {
+      return false;
+    }
+  }
+
+  return (p - p0) > 1;
+}
+
 static const char*  //
 next_rust_attribute_token(const char* p) {
   const char c0 = ((p + 0) < g_input_end) ? p[0] : 0;
@@ -1802,6 +1816,29 @@ analyze_c_thing(uint32_t l0, uint32_t l1) {
     token_t t = TOKEN_AT(l++);
 
     if (token_is_namey(t)) {
+      if (l < l1) {
+        switch (TOKEN_AT(l)) {
+          case TOKEN_FOR_U0028_LEFT_PARENTHESIS:
+            if (token_cstring_is_macro_namey(token_as_cstring(t))) {
+              uint32_t l_after_bracket = skip_brackets(l + 1u, l1);
+              if (l_after_bracket < l1) {
+                l = l_after_bracket;
+                continue;
+              }
+            }
+            break;
+
+          case TOKEN_FOR_U002C_COMMA:
+          case TOKEN_FOR_U003B_SEMICOLON:
+          case TOKEN_FOR_U003D_EQUALS_SIGN:
+            if ((prev_l != 0xFFFFFFFFu) &&
+                token_cstring_is_macro_namey(token_as_cstring(t))) {
+              continue;
+            }
+            break;
+        }
+      }
+
       prev_l = l - 1u;
       for (; (l + 2u) <= l1; l += 2u) {
         token_t t0 = TOKEN_AT(l + 0u);
