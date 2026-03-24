@@ -386,18 +386,25 @@ static bool g_has_rust_attribute = false;
 
 static bool g_looks_rusty_prior_to_tokenization = false;
 
+#define ABLED_ENABLED 0u
+#define ABLED_DISABLED_AND_PREVIOUSLY_ENABLED 1u
+#define ABLED_DISABLED_AND_NOT_PREVIOUSLY_ENABLED 3u
+
+#define ABLED_BIT_DISABLED 1u
+#define ABLED_BIT_NEVER_BEEN_ENABLED 2u
+
 #define G_PREPRO_IF_ELSE_ABLED_SIZE 64u
 static struct {
   uint32_t n_disabled;
   uint32_t n_abled;
-  bool abled[G_PREPRO_IF_ELSE_ABLED_SIZE];
+  uint8_t abled[G_PREPRO_IF_ELSE_ABLED_SIZE];
 } g_prepro_if_else = {0};
 /// The stack of active "#if", "ifdef", "#ifndef", "#else", "#elif" and
 /// "#endif" preprocessor directives.
 ///
-/// abled[i] being true or false means that token output is enabled or disabled
-/// for this branch. Output is disabled inside an "#if 0" or "#elif 0" branch,
-/// or for an "#else" or "#elif" branch following an enabled branch.
+/// abled[i] being an ABLED_XXX constant means that token output is enabled or
+/// disabled for this branch. Output is disabled inside an "#if 0" or "#elif 0"
+/// branch, or for an "#else" or "#elif" branch following an enabled branch.
 ///
 /// This program treats anything that's not "#if 0", (such as "#if foo",
 /// "#ifdef foo" or "#if bar > baz") as equivalent to "#if 1".
@@ -407,8 +414,8 @@ static struct {
 /// for now, the simple heuristic of always taking the first non-"#if 0"
 /// branch works well enough, similar to the ctags command-line tool.
 ///
-/// n_abled is the stack depth. n_disabled is the count of those n_abled abled
-/// entries that are false (disabled).
+/// n_abled is the abled stack depth. n_disabled is the number of stack entries
+/// that are disabled (they have the ABLED_BIT_DISABLED set).
 
 #define G_PREFIX_MARKS_SIZE 64u
 static struct {
@@ -1225,13 +1232,23 @@ preprocess_elif(bool arg_is_zero) {
   }
 
   uint32_t i = g_prepro_if_else.n_abled - 1u;
-  if (g_prepro_if_else.abled[i]) {
-    g_prepro_if_else.abled[i] = false;
-    g_prepro_if_else.n_disabled++;
-  } else if (!arg_is_zero) {
-    g_prepro_if_else.abled[i] = true;
-    g_prepro_if_else.n_disabled--;
+  switch (g_prepro_if_else.abled[i]) {
+    case ABLED_ENABLED:
+      g_prepro_if_else.abled[i] = ABLED_DISABLED_AND_PREVIOUSLY_ENABLED;
+      g_prepro_if_else.n_disabled++;
+      break;
+
+    case ABLED_DISABLED_AND_PREVIOUSLY_ENABLED:
+      break;
+
+    case ABLED_DISABLED_AND_NOT_PREVIOUSLY_ENABLED:
+      if (!arg_is_zero) {
+        g_prepro_if_else.abled[i] = ABLED_ENABLED;
+        g_prepro_if_else.n_disabled--;
+      }
+      break;
   }
+
   return NULL;
 }
 
@@ -1250,7 +1267,8 @@ preprocess_if(token_t directive) {
     if (g_prepro_if_else.n_abled > 0u) {
       uint32_t i = g_prepro_if_else.n_abled - 1u;
       g_prepro_if_else.n_abled = i;
-      g_prepro_if_else.n_disabled -= g_prepro_if_else.abled[i] ? 0u : 1u;
+      g_prepro_if_else.n_disabled -=
+          g_prepro_if_else.abled[i] & ABLED_BIT_DISABLED;
     }
     return NULL;
   }
@@ -1262,7 +1280,8 @@ preprocess_if(token_t directive) {
   bool enabled = (directive == g_token_for_ifdef) ||   //
                  (directive == g_token_for_ifndef) ||  //
                  (argument != g_token_for_0);
-  g_prepro_if_else.abled[g_prepro_if_else.n_abled] = enabled;
+  g_prepro_if_else.abled[g_prepro_if_else.n_abled] =
+      enabled ? ABLED_ENABLED : ABLED_DISABLED_AND_NOT_PREVIOUSLY_ENABLED;
   g_prepro_if_else.n_abled++;
   g_prepro_if_else.n_disabled += enabled ? 0u : 1u;
 

@@ -45,4 +45,16 @@ int g = 0;
 void foo(int);
 extern "C" void bar(int);
 
+#if 0
+#define THING 0
+#elif 1
+#define THING 1
+#elif 2
+#define THING 2
+#elif 3
+#define THING 3
+#else
+#define THING OTHER
+#endif
+
 #endif  // IF_ZERO_INCLUDE_GUARD
