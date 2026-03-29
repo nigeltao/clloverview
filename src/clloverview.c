@@ -33,6 +33,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "./generated.h"
+
 // --------
 
 // Uncomment any or all of these lines to dump debug information to stderr.
@@ -434,40 +436,6 @@ static struct {
 /// g_prefix.marks[0] is 0, the offset of the 'f', and g_prefix.marks[1] is 4,
 /// the offset of the 'b'.
 
-static token_t g_token_for_0 = 0u;
-static token_t g_token_for_char = 0u;
-static token_t g_token_for_class = 0u;
-static token_t g_token_for_const = 0u;
-static token_t g_token_for_default = 0u;
-static token_t g_token_for_define = 0u;
-static token_t g_token_for_else = 0u;
-static token_t g_token_for_elif = 0u;
-static token_t g_token_for_endif = 0u;
-static token_t g_token_for_enum = 0u;
-static token_t g_token_for_extern = 0u;
-static token_t g_token_for_fn = 0u;
-static token_t g_token_for_for = 0u;
-static token_t g_token_for_func = 0u;
-static token_t g_token_for_if = 0u;
-static token_t g_token_for_ifdef = 0u;
-static token_t g_token_for_ifndef = 0u;
-static token_t g_token_for_impl = 0u;
-static token_t g_token_for_import = 0u;
-static token_t g_token_for_int = 0u;
-static token_t g_token_for_interface = 0u;
-static token_t g_token_for_mod = 0u;
-static token_t g_token_for_namespace = 0u;
-static token_t g_token_for_package = 0u;
-static token_t g_token_for_pub = 0u;
-static token_t g_token_for_struct = 0u;
-static token_t g_token_for_trait = 0u;
-static token_t g_token_for_type = 0u;
-static token_t g_token_for_undef = 0u;
-static token_t g_token_for_use = 0u;
-static token_t g_token_for_using = 0u;
-static token_t g_token_for_var = 0u;
-static token_t g_token_for_void = 0u;
-
 #define G_EMITTABLE_DEFINITIONS_SIZE 16384
 static line_number_and_token_t
     g_emittable_definitions[G_EMITTABLE_DEFINITIONS_SIZE] = {0};
@@ -564,11 +532,6 @@ jenkins(const char* s_ptr, size_t s_len) {
   return hash;
 }
 
-#define INTERNALIZE_INTEGER(s) (internalize(s, strlen(s), false), g_token)
-#define INTERNALIZE_NAME(s) (internalize(s, strlen(s), true), g_token)
-/// s should be a compile-time string literal (and so cannot fail with
-/// err_tok_tokistol).
-
 static error_message_t  //
 internalize(const char* s_ptr, size_t s_len, bool namey) {
   /// Sets g_token to the integery or namey token for the string s, inserting
@@ -617,44 +580,6 @@ internalize(const char* s_ptr, size_t s_len, bool namey) {
   n_string_contents += 1u;
 
   return NULL;
-}
-
-static void  //
-internalize_well_known_names(void) {
-  g_token_for_0 = INTERNALIZE_INTEGER("0");
-
-  g_token_for_char = INTERNALIZE_NAME("char");
-  g_token_for_class = INTERNALIZE_NAME("class");
-  g_token_for_const = INTERNALIZE_NAME("const");
-  g_token_for_default = INTERNALIZE_NAME("default");
-  g_token_for_define = INTERNALIZE_NAME("define");
-  g_token_for_elif = INTERNALIZE_NAME("elif");
-  g_token_for_else = INTERNALIZE_NAME("else");
-  g_token_for_endif = INTERNALIZE_NAME("endif");
-  g_token_for_enum = INTERNALIZE_NAME("enum");
-  g_token_for_extern = INTERNALIZE_NAME("extern");
-  g_token_for_fn = INTERNALIZE_NAME("fn");
-  g_token_for_for = INTERNALIZE_NAME("for");
-  g_token_for_func = INTERNALIZE_NAME("func");
-  g_token_for_if = INTERNALIZE_NAME("if");
-  g_token_for_ifdef = INTERNALIZE_NAME("ifdef");
-  g_token_for_ifndef = INTERNALIZE_NAME("ifndef");
-  g_token_for_impl = INTERNALIZE_NAME("impl");
-  g_token_for_import = INTERNALIZE_NAME("import");
-  g_token_for_int = INTERNALIZE_NAME("int");
-  g_token_for_interface = INTERNALIZE_NAME("interface");
-  g_token_for_mod = INTERNALIZE_NAME("mod");
-  g_token_for_namespace = INTERNALIZE_NAME("namespace");
-  g_token_for_package = INTERNALIZE_NAME("package");
-  g_token_for_pub = INTERNALIZE_NAME("pub");
-  g_token_for_struct = INTERNALIZE_NAME("struct");
-  g_token_for_trait = INTERNALIZE_NAME("trait");
-  g_token_for_type = INTERNALIZE_NAME("type");
-  g_token_for_undef = INTERNALIZE_NAME("undef");
-  g_token_for_use = INTERNALIZE_NAME("use");
-  g_token_for_using = INTERNALIZE_NAME("using");
-  g_token_for_var = INTERNALIZE_NAME("var");
-  g_token_for_void = INTERNALIZE_NAME("void");
 }
 
 static const char*  //
@@ -1370,7 +1295,7 @@ tokenize(void) {
   /// Populates the g_lnats array and sets n_lnats.
 
   reset_global_tokenizer_state();
-  internalize_well_known_names();
+  INTERNALIZE_WELL_KNOWN_NAMES();
 
 #ifdef DEBUG_DUMP_TOKENS
   fprintf(stderr, "# index    line    token\n");
