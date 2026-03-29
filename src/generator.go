@@ -22,6 +22,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 )
 
 func main() {
@@ -35,7 +36,7 @@ func main() {
 		}
 
 		fmt.Printf("#define %-28s 0x%08Xu\n",
-			"g_token_for_"+s, value)
+			"TOKEN_FOR_"+strings.ToUpper(s), value)
 
 		n += 3 + uint32(len(s))
 	}

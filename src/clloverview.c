@@ -1208,13 +1208,13 @@ preprocess_if(token_t directive) {
   TRY(preprocess_readline());
   token_t argument = g_preprocess_readline_result;
 
-  if (directive == g_token_for_else) {
+  if (directive == TOKEN_FOR_ELSE) {
     return preprocess_elif(false);
 
-  } else if (directive == g_token_for_elif) {
-    return preprocess_elif(argument == g_token_for_0);
+  } else if (directive == TOKEN_FOR_ELIF) {
+    return preprocess_elif(argument == TOKEN_FOR_0);
 
-  } else if (directive == g_token_for_endif) {
+  } else if (directive == TOKEN_FOR_ENDIF) {
     if (g_prepro_if_else.n_abled > 0u) {
       uint32_t i = g_prepro_if_else.n_abled - 1u;
       g_prepro_if_else.n_abled = i;
@@ -1228,9 +1228,9 @@ preprocess_if(token_t directive) {
     return err_tok_itlnestd;
   }
 
-  bool enabled = (directive == g_token_for_ifdef) ||   //
-                 (directive == g_token_for_ifndef) ||  //
-                 (argument != g_token_for_0);
+  bool enabled = (directive == TOKEN_FOR_IFDEF) ||   //
+                 (directive == TOKEN_FOR_IFNDEF) ||  //
+                 (argument != TOKEN_FOR_0);
   g_prepro_if_else.abled[g_prepro_if_else.n_abled] =
       enabled ? ABLED_ENABLED : ABLED_DISABLED_AND_NOT_PREVIOUSLY_ENABLED;
   g_prepro_if_else.n_abled++;
@@ -1253,20 +1253,20 @@ preprocess(void) {
   token_t directive = g_token;
   if (!token_is_namey(directive)) {
     return err_pre_baddirec;
-  } else if ((directive == g_token_for_elif) ||   //
-             (directive == g_token_for_else) ||   //
-             (directive == g_token_for_endif) ||  //
-             (directive == g_token_for_if) ||     //
-             (directive == g_token_for_ifdef) ||  //
-             (directive == g_token_for_ifndef)) {
+  } else if ((directive == TOKEN_FOR_ELIF) ||   //
+             (directive == TOKEN_FOR_ELSE) ||   //
+             (directive == TOKEN_FOR_ENDIF) ||  //
+             (directive == TOKEN_FOR_IF) ||     //
+             (directive == TOKEN_FOR_IFDEF) ||  //
+             (directive == TOKEN_FOR_IFNDEF)) {
     return preprocess_if(directive);
   }
 
   if (g_prepro_if_else.n_disabled > 0u) {
     // No-op.
-  } else if (directive == g_token_for_define) {
+  } else if (directive == TOKEN_FOR_DEFINE) {
     return preprocess_define();
-  } else if (directive == g_token_for_undef) {
+  } else if (directive == TOKEN_FOR_UNDEF) {
     return preprocess_undef();
   }
 
@@ -1831,7 +1831,7 @@ analyze_c(void) {
       l = skip_brackets_pointy(l, n_lnats, true);
       continue;
 
-    } else if ((t == g_token_for_import) || (t == g_token_for_using)) {
+    } else if ((t == TOKEN_FOR_IMPORT) || (t == TOKEN_FOR_USING)) {
       while (true) {
         if (l >= n_lnats) {
           return NULL;
@@ -1842,11 +1842,11 @@ analyze_c(void) {
       l0 = l;
       continue;
 
-    } else if (t == g_token_for_enum) {
+    } else if (t == TOKEN_FOR_ENUM) {
       if (l >= n_lnats) {
         return NULL;
       }
-      bool is_enum_class = TOKEN_AT(l) == g_token_for_class;
+      bool is_enum_class = TOKEN_AT(l) == TOKEN_FOR_CLASS;
       token_t type_name = 0;
       if (token_is_namey(TOKEN_AT(l))) {
         while (((l + 1u) < n_lnats) && (token_is_namey(TOKEN_AT(l + 1u)))) {
@@ -1879,7 +1879,7 @@ analyze_c(void) {
       l0 = l;
       continue;
 
-    } else if (t == g_token_for_extern) {
+    } else if (t == TOKEN_FOR_EXTERN) {
       if (((l + 1u) < n_lnats) &&
           (TOKEN_AT(l + 0u) == TOKEN_FOR_PLACEHOLDER_STRING) &&
           (TOKEN_AT(l + 1u) == TOKEN_FOR_U007B_LEFT_CURLY_BRACKET)) {
@@ -1888,9 +1888,9 @@ analyze_c(void) {
       }
       continue;
 
-    } else if ((t != g_token_for_class) &&   //
-               (t != g_token_for_struct) &&  //
-               (t != g_token_for_namespace)) {
+    } else if ((t != TOKEN_FOR_CLASS) &&   //
+               (t != TOKEN_FOR_STRUCT) &&  //
+               (t != TOKEN_FOR_NAMESPACE)) {
       continue;
 
     } else if (l >= n_lnats) {
@@ -1898,7 +1898,7 @@ analyze_c(void) {
     }
 
     token_t class_name = TOKEN_AT(l);
-    if (t != g_token_for_namespace) {
+    if (t != TOKEN_FOR_NAMESPACE) {
       if (class_name == TOKEN_FOR_U007B_LEFT_CURLY_BRACKET) {
         uint32_t l_after_bracket = skip_brackets(l + 1u, n_lnats);
         if ((l_after_bracket < n_lnats) &&
@@ -1958,7 +1958,7 @@ analyze_csharp_java(void) {
   }
 
   uint32_t l = 0u;
-  if (TOKEN_AT(0) == g_token_for_package) {
+  if (TOKEN_AT(0) == TOKEN_FOR_PACKAGE) {
     l++;
     while (l < (n_lnats - 1u)) {
       token_t t0 = TOKEN_AT(l++);
@@ -1987,7 +1987,7 @@ analyze_csharp_java(void) {
       } else if (TOKEN_AT(l) == TOKEN_FOR_U003B_SEMICOLON) {
         l++;
         is_enumerating = false;
-      } else if (TOKEN_AT(l) == g_token_for_default) {
+      } else if (TOKEN_AT(l) == TOKEN_FOR_DEFAULT) {
         l = skip_past_semicolon(l + 1u, n_lnats);
         is_enumerating = false;
       }
@@ -2014,7 +2014,7 @@ analyze_csharp_java(void) {
 
     } else if (t == TOKEN_FOR_U0040_COMMERCIAL_AT) {
       if (l < n_lnats) {
-        if (TOKEN_AT(l) == g_token_for_interface) {
+        if (TOKEN_AT(l) == TOKEN_FOR_INTERFACE) {
           continue;
         }
         l++;
@@ -2023,25 +2023,25 @@ analyze_csharp_java(void) {
         l = skip_brackets(l + 1u, n_lnats);
       }
 
-    } else if ((t == g_token_for_import) ||  //
-               (t == g_token_for_using)) {
+    } else if ((t == TOKEN_FOR_IMPORT) ||  //
+               (t == TOKEN_FOR_USING)) {
       l = skip_past_semicolon(l + 1u, n_lnats);
       is_enumerating = false;
 
-    } else if ((t == g_token_for_class) ||      //
-               (t == g_token_for_enum) ||       //
-               (t == g_token_for_interface) ||  //
-               (t == g_token_for_namespace)) {
+    } else if ((t == TOKEN_FOR_CLASS) ||      //
+               (t == TOKEN_FOR_ENUM) ||       //
+               (t == TOKEN_FOR_INTERFACE) ||  //
+               (t == TOKEN_FOR_NAMESPACE)) {
       if (l >= n_lnats) {
         return NULL;
       }
-      is_enumerating = (t == g_token_for_enum);
+      is_enumerating = (t == TOKEN_FOR_ENUM);
 
-      if (t != g_token_for_namespace) {
+      if (t != TOKEN_FOR_NAMESPACE) {
         emit_one(g_lnats[l]);
       }
       TRY(prefix_push_token(TOKEN_AT(l++)));
-      if ((t == g_token_for_namespace) &&  //
+      if ((t == TOKEN_FOR_NAMESPACE) &&  //
           (l < n_lnats) && (TOKEN_AT(l) == TOKEN_FOR_U003B_SEMICOLON)) {
         l++;
         continue;
@@ -2103,10 +2103,10 @@ analyze_go(void) {
       return NULL;
     }
 
-    if (keyword == g_token_for_import) {
+    if (keyword == TOKEN_FOR_IMPORT) {
       goto skip_to_next_top_level_declaration;
 
-    } else if (keyword == g_token_for_func) {
+    } else if (keyword == TOKEN_FOR_FUNC) {
       token_t recv_type = 0u;
       token_t func_name = TOKEN_AT(l);
       if (func_name == TOKEN_FOR_U0028_LEFT_PARENTHESIS) {
@@ -2145,8 +2145,8 @@ analyze_go(void) {
       }
     }
 
-    if ((keyword == g_token_for_const) ||  //
-        (keyword == g_token_for_var)) {
+    if ((keyword == TOKEN_FOR_CONST) ||  //
+        (keyword == TOKEN_FOR_VAR)) {
       while (true) {
         uint32_t l1 = skip_past_go_semicolon(l, n_lnats);
         emit_comma_separated_names(l, l1);
@@ -2162,7 +2162,7 @@ analyze_go(void) {
         }
       }
 
-    } else if (keyword == g_token_for_type) {
+    } else if (keyword == TOKEN_FOR_TYPE) {
       token_t type_name = TOKEN_AT(l);
       if (!token_is_namey(type_name)) {
         return NULL;
@@ -2172,8 +2172,8 @@ analyze_go(void) {
              (TOKEN_AT(l) == TOKEN_FOR_U005B_LEFT_SQUARE_BRACKET)) {
         l = skip_brackets(l + 1u, n_lnats);
       }
-      if (((l + 1u) < n_lnats) &&                      //
-          (TOKEN_AT(l + 0u) == g_token_for_struct) &&  //
+      if (((l + 1u) < n_lnats) &&                    //
+          (TOKEN_AT(l + 0u) == TOKEN_FOR_STRUCT) &&  //
           (TOKEN_AT(l + 1u) == TOKEN_FOR_U007B_LEFT_CURLY_BRACKET)) {
         l += 2u;
         TRY(prefix_push_token(type_name));
@@ -2199,11 +2199,11 @@ analyze_go(void) {
   skip_to_next_top_level_declaration:
     while (l < n_lnats) {
       token_t t = TOKEN_AT(l);
-      if ((t == g_token_for_const) ||   //
-          (t == g_token_for_func) ||    //
-          (t == g_token_for_import) ||  //
-          (t == g_token_for_type) ||    //
-          (t == g_token_for_var)) {
+      if ((t == TOKEN_FOR_CONST) ||   //
+          (t == TOKEN_FOR_FUNC) ||    //
+          (t == TOKEN_FOR_IMPORT) ||  //
+          (t == TOKEN_FOR_TYPE) ||    //
+          (t == TOKEN_FOR_VAR)) {
         break;
       }
       l++;
@@ -2221,7 +2221,7 @@ namey_token_or_impl(uint32_t l) {
     return l;
   }
   for (; l > 0u; l--) {
-    if (TOKEN_AT(l) == g_token_for_impl) {
+    if (TOKEN_AT(l) == TOKEN_FOR_IMPL) {
       return l;
     }
   }
@@ -2260,16 +2260,16 @@ analyze_rust(void) {
       bracket_depth--;
       prefix_pop();
 
-    } else if (keyword == g_token_for_use) {
+    } else if (keyword == TOKEN_FOR_USE) {
       l = skip_past_semicolon(l + 1u, n_lnats);
       continue;
 
-    } else if (keyword == g_token_for_type) {
+    } else if (keyword == TOKEN_FOR_TYPE) {
       emit_one(g_lnats[l]);
       l = skip_past_semicolon(l + 1u, n_lnats);
       continue;
 
-    } else if (keyword == g_token_for_fn) {
+    } else if (keyword == TOKEN_FOR_FN) {
       if (!token_is_namey(TOKEN_AT(l))) {
         return NULL;
       }
@@ -2294,8 +2294,8 @@ analyze_rust(void) {
       }
       continue;
 
-    } else if ((keyword == g_token_for_enum) ||  //
-               (keyword == g_token_for_struct)) {
+    } else if ((keyword == TOKEN_FOR_ENUM) ||  //
+               (keyword == TOKEN_FOR_STRUCT)) {
       emit_one(g_lnats[l]);
       token_t type_name = TOKEN_AT(l++);
 
@@ -2309,16 +2309,16 @@ analyze_rust(void) {
           break;
         } else if (t == TOKEN_FOR_U007B_LEFT_CURLY_BRACKET) {
           TRY(prefix_push_token(type_name));
-          l = (keyword == g_token_for_enum) ? parse_enum_fields(l)
-                                            : parse_rust_struct_fields(l);
+          l = (keyword == TOKEN_FOR_ENUM) ? parse_enum_fields(l)
+                                          : parse_rust_struct_fields(l);
           prefix_pop();
           break;
         }
       }
 
-    } else if ((keyword == g_token_for_impl) ||  //
-               (keyword == g_token_for_mod) ||   //
-               (keyword == g_token_for_trait)) {
+    } else if ((keyword == TOKEN_FOR_IMPL) ||  //
+               (keyword == TOKEN_FOR_MOD) ||   //
+               (keyword == TOKEN_FOR_TRAIT)) {
       if (TOKEN_AT(l) == TOKEN_FOR_U003C_LESS_THAN_SIGN) {
         l = skip_brackets_pointy(l + 1u, n_lnats, true);
         if (l >= n_lnats) {
@@ -2344,9 +2344,9 @@ analyze_rust(void) {
           uint32_t l0 = l_of_typename + 0u;
           uint32_t l1 = l_of_typename + 1u;
 
-          if (keyword == g_token_for_trait) {
+          if (keyword == TOKEN_FOR_TRAIT) {
             emit_one(g_lnats[l_of_typename]);
-          } else if (keyword == g_token_for_impl) {
+          } else if (keyword == TOKEN_FOR_IMPL) {
             while (((l1 + 1u) < n_lnats) &&
                    (TOKEN_AT(l1) == TOKEN_FOR_OPERATOR_COLON_COLON) &&
                    (token_is_namey(TOKEN_AT(l1 + 1u)))) {
@@ -2361,7 +2361,7 @@ analyze_rust(void) {
           bracket_depth++;
           break;
 
-        } else if (t == g_token_for_for) {
+        } else if (t == TOKEN_FOR_FOR) {
           while ((l < n_lnats) && (TOKEN_AT(l) == TOKEN_FOR_U0026_AMPERSAND)) {
             l++;
             if (((l + 1u) < n_lnats) &&
@@ -2399,7 +2399,7 @@ guess_language_family(void) {
   token_t t1 = (n_lnats > 1u) ? TOKEN_AT(1) : 0u;
   token_t t2 = (n_lnats > 2u) ? TOKEN_AT(2) : 0u;
 
-  if (t0 == g_token_for_package) {
+  if (t0 == TOKEN_FOR_PACKAGE) {
     if (!token_is_namey(t1)) {
       return NULL;
     } else if ((t2 == TOKEN_FOR_U002E_FULL_STOP) ||
@@ -2408,16 +2408,16 @@ guess_language_family(void) {
     }
     return &analyze_go;
 
-  } else if ((t0 == g_token_for_using) ||      //
-             (t0 == g_token_for_namespace) ||  //
-             (t0 == g_token_for_class) ||      //
-             (t0 == g_token_for_interface) ||  //
-             (t1 == g_token_for_class) ||      //
-             (t1 == g_token_for_interface)) {
+  } else if ((t0 == TOKEN_FOR_USING) ||      //
+             (t0 == TOKEN_FOR_NAMESPACE) ||  //
+             (t0 == TOKEN_FOR_CLASS) ||      //
+             (t0 == TOKEN_FOR_INTERFACE) ||  //
+             (t1 == TOKEN_FOR_CLASS) ||      //
+             (t1 == TOKEN_FOR_INTERFACE)) {
     return &analyze_csharp_java;
 
-  } else if ((t0 == g_token_for_enum) ||  //
-             (t1 == g_token_for_enum)) {
+  } else if ((t0 == TOKEN_FOR_ENUM) ||  //
+             (t1 == TOKEN_FOR_ENUM)) {
     return g_looks_rusty_prior_to_tokenization ? &analyze_rust
                                                : &analyze_csharp_java;
   }
@@ -2425,14 +2425,14 @@ guess_language_family(void) {
   uint32_t n = min_u32(n_lnats, 64u);
   for (uint32_t l = 0u; l < n;) {
     token_t t = TOKEN_AT(l++);
-    if ((t == g_token_for_char) ||  //
-        (t == g_token_for_int) ||   //
-        (t == g_token_for_void)) {
+    if ((t == TOKEN_FOR_CHAR) ||  //
+        (t == TOKEN_FOR_INT) ||   //
+        (t == TOKEN_FOR_VOID)) {
       return &analyze_c;
-    } else if ((t == g_token_for_fn) ||    //
-               (t == g_token_for_impl) ||  //
-               (t == g_token_for_mod) ||   //
-               (t == g_token_for_pub)) {
+    } else if ((t == TOKEN_FOR_FN) ||    //
+               (t == TOKEN_FOR_IMPL) ||  //
+               (t == TOKEN_FOR_MOD) ||   //
+               (t == TOKEN_FOR_PUB)) {
       return &analyze_rust;
     }
   }
