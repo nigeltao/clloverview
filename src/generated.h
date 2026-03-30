@@ -22,6 +22,10 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+// --------
+
+// clang-format off
+
 #define TOKEN_FOR_0                  0x00200000u
 #define TOKEN_FOR_CHAR               0x40800004u
 #define TOKEN_FOR_CLASS              0x40A0000Bu
@@ -92,3 +96,5 @@
     internalize("var"               ,  3, true); \
     internalize("void"              ,  4, true); \
   } while (false)
+
+// clang-format on
