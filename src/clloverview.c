@@ -1713,7 +1713,7 @@ skip_past_go_semicolon(uint32_t l0, uint32_t l1) {
 // --------
 
 static uint32_t  //
-parse_enum_fields(uint32_t l) {
+parse_enum_fields(uint32_t l, bool stop_after_semicolon) {
   while (l < n_lnats) {
     token_t t = TOKEN_AT(l++);
     if (t == TOKEN_FOR_U007D_RIGHT_CURLY_BRACKET) {
@@ -1724,6 +1724,8 @@ parse_enum_fields(uint32_t l) {
       l = skip_brackets(l, n_lnats);
     } else if (token_is_namey(t)) {
       emit_one(g_lnats[l - 1u]);
+    } else if ((t == TOKEN_FOR_U003B_SEMICOLON) && stop_after_semicolon) {
+      break;
     }
   }
   return l;
@@ -1869,7 +1871,7 @@ analyze_c(void) {
           if (type_name != 0) {
             TRY(prefix_push_token(type_name));
           }
-          l = parse_enum_fields(l);
+          l = parse_enum_fields(l, false);
           if (type_name != 0) {
             prefix_pop();
           }
@@ -2215,6 +2217,122 @@ analyze_go(void) {
 
 // --------
 
+static error_message_t  //
+analyze_kotlin(void) {
+  if (n_lnats < 2u) {
+    return NULL;
+  }
+
+  uint32_t l = 0u;
+  if (TOKEN_AT(0) == TOKEN_FOR_PACKAGE) {
+    uint32_t package_line_number = ((uint32_t)(g_lnats[0] >> 32));
+    l++;
+    while ((l + 1u) < n_lnats) {
+      line_number_and_token_t lnat = g_lnats[l++];
+      uint32_t line_number = ((uint32_t)(lnat >> 32));
+      if (line_number != package_line_number) {
+        break;
+      }
+      token_t token = ((token_t)(lnat));
+      if (token == TOKEN_FOR_U002E_FULL_STOP) {
+        continue;
+      } else if (!token_is_namey(token)) {
+        break;
+      }
+      TRY(prefix_push_token(token));
+    }
+  }
+
+  while ((l + 1u) < n_lnats) {
+    token_t keyword = TOKEN_AT(l++);
+    switch (keyword) {
+      case TOKEN_FOR_U0028_LEFT_PARENTHESIS:
+      case TOKEN_FOR_U007B_LEFT_CURLY_BRACKET:
+        l = skip_brackets(l, n_lnats);
+        break;
+
+      case TOKEN_FOR_U007D_RIGHT_CURLY_BRACKET:
+        prefix_pop();
+        break;
+
+      case TOKEN_FOR_CLASS:
+      case TOKEN_FOR_FUN:
+      case TOKEN_FOR_INTERFACE:
+      case TOKEN_FOR_OBJECT:
+      case TOKEN_FOR_VAL:
+      case TOKEN_FOR_VAR:
+        bool is_enum_class = (keyword == TOKEN_FOR_CLASS) && (l >= 2u) &&
+                             (TOKEN_AT(l - 2u) == TOKEN_FOR_ENUM);
+
+        if (TOKEN_AT(l) == TOKEN_FOR_U003C_LESS_THAN_SIGN) {
+          l = skip_brackets_pointy(l + 1u, n_lnats, true);
+          if (l >= n_lnats) {
+            return NULL;
+          }
+        }
+
+        token_t class_name = TOKEN_AT(l);
+        if ((keyword == TOKEN_FOR_OBJECT) && !token_is_namey(class_name) &&
+            (l >= 2u) && (TOKEN_AT(l - 2u) == TOKEN_FOR_COMPANION)) {
+          class_name = TOKEN_FOR_COMPANION;
+          emit_one(g_lnats[l - 2u]);
+        } else {
+          emit_one(g_lnats[l++]);
+        }
+
+        if ((keyword != TOKEN_FOR_CLASS) &&      //
+            (keyword != TOKEN_FOR_INTERFACE) &&  //
+            (keyword != TOKEN_FOR_OBJECT)) {
+          break;
+        }
+        TRY(prefix_push_token(class_name));
+
+        if ((l < n_lnats) &&
+            (TOKEN_AT(l) == TOKEN_FOR_U0028_LEFT_PARENTHESIS)) {
+          l++;
+          while ((l + 1u) < n_lnats) {
+            token_t t = TOKEN_AT(l++);
+            if (t == TOKEN_FOR_U0029_RIGHT_PARENTHESIS) {
+              break;
+            } else if ((t == TOKEN_FOR_U003A_COLON) &&
+                       token_is_namey(TOKEN_AT(l - 2u))) {
+              emit_one(g_lnats[l - 2u]);
+            }
+          }
+        }
+
+        while (l < n_lnats) {
+          token_t t = TOKEN_AT(l++);
+          if (t == TOKEN_FOR_U007B_LEFT_CURLY_BRACKET) {
+            if (is_enum_class) {
+              l = parse_enum_fields(l, true);
+              if ((l > 0u) &&
+                  (TOKEN_AT(l - 1u) == TOKEN_FOR_U007D_RIGHT_CURLY_BRACKET)) {
+                prefix_pop();
+              }
+            }
+            break;
+
+          } else if ((t == TOKEN_FOR_U007D_RIGHT_CURLY_BRACKET) ||  //
+                     (t == TOKEN_FOR_CLASS) ||                      //
+                     (t == TOKEN_FOR_FUN) ||                        //
+                     (t == TOKEN_FOR_INTERFACE) ||                  //
+                     (t == TOKEN_FOR_OBJECT) ||                     //
+                     (t == TOKEN_FOR_VAL) ||                        //
+                     (t == TOKEN_FOR_VAR)) {
+            l--;
+            prefix_pop();
+            break;
+          }
+        }
+        break;
+    }
+  }
+  return NULL;
+}
+
+// --------
+
 static uint32_t  //
 namey_token_or_impl(uint32_t l) {
   if (token_is_namey(TOKEN_AT(l))) {
@@ -2309,7 +2427,7 @@ analyze_rust(void) {
           break;
         } else if (t == TOKEN_FOR_U007B_LEFT_CURLY_BRACKET) {
           TRY(prefix_push_token(type_name));
-          l = (keyword == TOKEN_FOR_ENUM) ? parse_enum_fields(l)
+          l = (keyword == TOKEN_FOR_ENUM) ? parse_enum_fields(l, false)
                                           : parse_rust_struct_fields(l);
           prefix_pop();
           break;
@@ -2397,14 +2515,52 @@ guess_language_family(void) {
 
   token_t t0 = (n_lnats > 0u) ? TOKEN_AT(0) : 0u;
   token_t t1 = (n_lnats > 1u) ? TOKEN_AT(1) : 0u;
-  token_t t2 = (n_lnats > 2u) ? TOKEN_AT(2) : 0u;
 
   if (t0 == TOKEN_FOR_PACKAGE) {
+    uint32_t package_line_number = ((uint32_t)(g_lnats[0] >> 32));
+    bool package_has_a_dot = false;
+    bool package_ends_with_a_semicolon = false;
+    for (uint32_t l = 1u; l < n_lnats;) {
+      line_number_and_token_t lnat = g_lnats[l++];
+      uint32_t line_number = ((uint32_t)(lnat >> 32));
+      if (line_number != package_line_number) {
+        break;
+      }
+      token_t token = ((token_t)(lnat));
+      if (token == TOKEN_FOR_U002E_FULL_STOP) {
+        package_has_a_dot = true;
+      } else if (token == TOKEN_FOR_U003B_SEMICOLON) {
+        package_ends_with_a_semicolon = true;
+        break;
+      }
+    }
+
     if (!token_is_namey(t1)) {
       return NULL;
-    } else if ((t2 == TOKEN_FOR_U002E_FULL_STOP) ||
-               (t2 == TOKEN_FOR_U003B_SEMICOLON)) {
+    } else if (package_ends_with_a_semicolon) {
       return &analyze_csharp_java;
+    } else if (package_has_a_dot) {
+      return &analyze_kotlin;
+    }
+
+    for (uint32_t l = 1u; l < n_lnats;) {
+      switch (TOKEN_AT(l++)) {
+        case TOKEN_FOR_CLASS:
+        case TOKEN_FOR_FUN:
+        case TOKEN_FOR_OBJECT:
+        case TOKEN_FOR_VAL:
+          return &analyze_kotlin;
+
+        case TOKEN_FOR_FUNC:
+        case TOKEN_FOR_TYPE:
+        case TOKEN_FOR_VAR:
+          return &analyze_go;
+
+        case TOKEN_FOR_CONST:
+          return ((l < n_lnats) && (TOKEN_AT(l) == TOKEN_FOR_VAL))
+                     ? &analyze_kotlin
+                     : &analyze_go;
+      }
     }
     return &analyze_go;
 
@@ -2434,6 +2590,8 @@ guess_language_family(void) {
                (t == TOKEN_FOR_MOD) ||   //
                (t == TOKEN_FOR_PUB)) {
       return &analyze_rust;
+    } else if ((t == TOKEN_FOR_FUN)) {
+      return &analyze_kotlin;
     }
   }
 
