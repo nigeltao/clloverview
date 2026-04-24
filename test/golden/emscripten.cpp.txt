@@ -1,0 +1,3 @@
+EM_JS   = "test/golden/emscripten.cpp:3";
+main    = "test/golden/emscripten.cpp:7";
+EM_JS   = "test/golden/emscripten.cpp:14";

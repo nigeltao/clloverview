@@ -733,12 +733,13 @@ next_quote_token(const char* p, const char quote) {
         g_input_ptr = p + 2;
         g_token = TOKEN_FOR_PLACEHOLDER_CHAR;
         return NULL;
+      } else if (g_looks_rusty_prior_to_tokenization) {
+        // We have something lifetime-like, such as 'a or 'static. The next
+        // token is just an apostrophe.
+        g_input_ptr = p;
+        g_token = TOKEN_FOR_U0027_APOSTROPHE;
+        return NULL;
       }
-      // We have something lifetime-like, such as 'a or 'static. The next token
-      // is just an apostrophe.
-      g_input_ptr = p;
-      g_token = TOKEN_FOR_U0027_APOSTROPHE;
-      return NULL;
     }
   }
 
