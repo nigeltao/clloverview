@@ -76,3 +76,6 @@ slice_u64       = "test/golden/c.cpp:133";
 UNUSED  = "test/golden/c.cpp:136";
 four_things     = "test/golden/c.cpp:141";
 unloved = "test/golden/c.cpp:142";
+MACRO_WITH_ELLIPSIS0    = "test/golden/c.cpp:144";
+MACRO_WITH_ELLIPSIS1    = "test/golden/c.cpp:145";
+MACRO_WITH_ELLIPSIS3    = "test/golden/c.cpp:146";

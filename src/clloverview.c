@@ -346,6 +346,8 @@ token_length(token_t t) {
 #define TOKEN_FOR_OPERATOR_MINUS_MINUS          0x804016ADu
 #define TOKEN_FOR_OPERATOR_PLUS_PLUS            0x804015ABu
 
+#define TOKEN_FOR_DOT_DOT_DOT                   0x806B972Eu
+
 #define TOKEN_FOR_PLACEHOLDER_CHAR              0x8069D2A7u
 #define TOKEN_FOR_PLACEHOLDER_FLOATING_POINT    0x806C9731u
 #define TOKEN_FOR_PLACEHOLDER_STRING            0x806892A2u
@@ -956,6 +958,13 @@ restart_next_token:
       return NULL;
     }
 
+  } else if (c == '.') {
+    if (((p + 1) < g_input_end) && (p[0] == '.') && (p[1] == '.')) {
+      g_input_ptr = p + 2;
+      g_token = TOKEN_FOR_DOT_DOT_DOT;
+      return NULL;
+    }
+
   } else if (c == ':') {
     if ((p < g_input_end) && (*p == ':')) {
       p++;
@@ -996,7 +1005,7 @@ substitute_macro_argument_tokens(token_t t,
                                  token_t* args_ptr,
                                  uint32_t args_len) {
   for (uint32_t i = 0u; i < args_len; i++) {
-    if (t == args_ptr[i]) {
+    if ((t == args_ptr[i]) && (t != TOKEN_FOR_DOT_DOT_DOT)) {
       return make_macro_argument_token(i);
     }
   }
@@ -1056,7 +1065,7 @@ preprocess_define(void) {
         // fallthrough
 
       case 2:  // Before a macro argument.
-        if (!token_is_namey(g_token)) {
+        if (!token_is_namey(g_token) && (g_token != TOKEN_FOR_DOT_DOT_DOT)) {
           return err_pre_badmacde;
         } else if (num_args >= args_size) {
           return err_pre_macroatl;
@@ -1071,6 +1080,8 @@ preprocess_define(void) {
           continue;
         } else if (g_token == TOKEN_FOR_U0029_RIGHT_PARENTHESIS) {
           state = 4;
+          continue;
+        } else if (g_token == TOKEN_FOR_DOT_DOT_DOT) {
           continue;
         }
         return err_pre_badmacde;

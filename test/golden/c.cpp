@@ -140,3 +140,7 @@ typedef SLICE(uint64_t) slice_u64;
 
 int four_things[4] UNUSED = {0, 1, 2, 3};
 int unloved UNUSED;
+
+#define MACRO_WITH_ELLIPSIS0(...) z
+#define MACRO_WITH_ELLIPSIS1(a, ...) z
+#define MACRO_WITH_ELLIPSIS3(i, j, k...) z
