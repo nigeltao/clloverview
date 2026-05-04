@@ -58,7 +58,7 @@ class MyClass {
     }
 }
 
-class User(val name: String) {
+class User @AssistedInject constructor(val name: String, @Assisted private var params: Params?) {
     companion object {
         private val defaultGreeting = "Hello"
     }
@@ -79,6 +79,13 @@ class Outer {
     }
 
     private val thing = 0
+
+
+    private fun createSalad(): Salad =
+        object : SaladWrapper() {
+            override fun getTomaeto(): Int = zxcv.tomaeto
+            override fun getTomahto(): Int = zxcv.tomahto
+        }
 }
 
 val d3 = double(3)

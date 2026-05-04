@@ -31,38 +31,39 @@
 #define TOKEN_FOR_CLASS              0x40A0000Bu
 #define TOKEN_FOR_COMPANION          0x41200013u
 #define TOKEN_FOR_CONST              0x40A0001Fu
-#define TOKEN_FOR_DEFAULT            0x40E00027u
-#define TOKEN_FOR_DEFINE             0x40C00031u
-#define TOKEN_FOR_ELIF               0x4080003Au
-#define TOKEN_FOR_ELSE               0x40800041u
-#define TOKEN_FOR_ENDIF              0x40A00048u
-#define TOKEN_FOR_ENUM               0x40800050u
-#define TOKEN_FOR_EXTERN             0x40C00057u
-#define TOKEN_FOR_FN                 0x40400060u
-#define TOKEN_FOR_FOR                0x40600065u
-#define TOKEN_FOR_FUN                0x4060006Bu
-#define TOKEN_FOR_FUNC               0x40800071u
-#define TOKEN_FOR_IF                 0x40400078u
-#define TOKEN_FOR_IFDEF              0x40A0007Du
-#define TOKEN_FOR_IFNDEF             0x40C00085u
-#define TOKEN_FOR_IMPL               0x4080008Eu
-#define TOKEN_FOR_IMPORT             0x40C00095u
-#define TOKEN_FOR_INT                0x4060009Eu
-#define TOKEN_FOR_INTERFACE          0x412000A4u
-#define TOKEN_FOR_MOD                0x406000B0u
-#define TOKEN_FOR_NAMESPACE          0x412000B6u
-#define TOKEN_FOR_OBJECT             0x40C000C2u
-#define TOKEN_FOR_PACKAGE            0x40E000CBu
-#define TOKEN_FOR_PUB                0x406000D5u
-#define TOKEN_FOR_STRUCT             0x40C000DBu
-#define TOKEN_FOR_TRAIT              0x40A000E4u
-#define TOKEN_FOR_TYPE               0x408000ECu
-#define TOKEN_FOR_UNDEF              0x40A000F3u
-#define TOKEN_FOR_USE                0x406000FBu
-#define TOKEN_FOR_USING              0x40A00101u
-#define TOKEN_FOR_VAL                0x40600109u
-#define TOKEN_FOR_VAR                0x4060010Fu
-#define TOKEN_FOR_VOID               0x40800115u
+#define TOKEN_FOR_CONSTRUCTOR        0x41600027u
+#define TOKEN_FOR_DEFAULT            0x40E00035u
+#define TOKEN_FOR_DEFINE             0x40C0003Fu
+#define TOKEN_FOR_ELIF               0x40800048u
+#define TOKEN_FOR_ELSE               0x4080004Fu
+#define TOKEN_FOR_ENDIF              0x40A00056u
+#define TOKEN_FOR_ENUM               0x4080005Eu
+#define TOKEN_FOR_EXTERN             0x40C00065u
+#define TOKEN_FOR_FN                 0x4040006Eu
+#define TOKEN_FOR_FOR                0x40600073u
+#define TOKEN_FOR_FUN                0x40600079u
+#define TOKEN_FOR_FUNC               0x4080007Fu
+#define TOKEN_FOR_IF                 0x40400086u
+#define TOKEN_FOR_IFDEF              0x40A0008Bu
+#define TOKEN_FOR_IFNDEF             0x40C00093u
+#define TOKEN_FOR_IMPL               0x4080009Cu
+#define TOKEN_FOR_IMPORT             0x40C000A3u
+#define TOKEN_FOR_INT                0x406000ACu
+#define TOKEN_FOR_INTERFACE          0x412000B2u
+#define TOKEN_FOR_MOD                0x406000BEu
+#define TOKEN_FOR_NAMESPACE          0x412000C4u
+#define TOKEN_FOR_OBJECT             0x40C000D0u
+#define TOKEN_FOR_PACKAGE            0x40E000D9u
+#define TOKEN_FOR_PUB                0x406000E3u
+#define TOKEN_FOR_STRUCT             0x40C000E9u
+#define TOKEN_FOR_TRAIT              0x40A000F2u
+#define TOKEN_FOR_TYPE               0x408000FAu
+#define TOKEN_FOR_UNDEF              0x40A00101u
+#define TOKEN_FOR_USE                0x40600109u
+#define TOKEN_FOR_USING              0x40A0010Fu
+#define TOKEN_FOR_VAL                0x40600117u
+#define TOKEN_FOR_VAR                0x4060011Du
+#define TOKEN_FOR_VOID               0x40800123u
 
 #define INTERNALIZE_WELL_KNOWN_NAMES() \
   do { \
@@ -71,6 +72,7 @@
     internalize("class"             ,  5, true); \
     internalize("companion"         ,  9, true); \
     internalize("const"             ,  5, true); \
+    internalize("constructor"       , 11, true); \
     internalize("default"           ,  7, true); \
     internalize("define"            ,  6, true); \
     internalize("elif"              ,  4, true); \

@@ -2284,12 +2284,17 @@ analyze_kotlin(void) {
         }
 
         token_t class_name = TOKEN_AT(l);
-        if ((keyword == TOKEN_FOR_OBJECT) && !token_is_namey(class_name) &&
-            (l >= 2u) && (TOKEN_AT(l - 2u) == TOKEN_FOR_COMPANION)) {
-          class_name = TOKEN_FOR_COMPANION;
-          emit_one(g_lnats[l - 2u]);
-        } else {
+        if (token_is_namey(class_name)) {
           emit_one(g_lnats[l++]);
+        } else {
+          uint32_t l0 = l - 1u;
+          for (; TOKEN_AT(l0) != keyword; l--) {
+          }
+          if ((l0 > 0u) && (TOKEN_AT(l0 - 1u) == TOKEN_FOR_COMPANION)) {
+            l0--;
+          }
+          class_name = TOKEN_AT(l0);
+          emit_one(g_lnats[l0]);
         }
 
         if ((keyword != TOKEN_FOR_CLASS) &&      //
@@ -2298,6 +2303,17 @@ analyze_kotlin(void) {
           break;
         }
         TRY(prefix_push_token(class_name));
+
+        for (; (l + 1u) < n_lnats; l += 2u) {
+          if ((TOKEN_AT(l + 0u) != TOKEN_FOR_U0040_COMMERCIAL_AT) ||
+              !token_is_namey(TOKEN_AT(l + 1u))) {
+            break;
+          }
+        }
+
+        if ((l < n_lnats) && (TOKEN_AT(l) == TOKEN_FOR_CONSTRUCTOR)) {
+          l++;
+        }
 
         if ((l < n_lnats) &&
             (TOKEN_AT(l) == TOKEN_FOR_U0028_LEFT_PARENTHESIS)) {

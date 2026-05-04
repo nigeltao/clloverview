@@ -99,6 +99,7 @@ var wellKnownNames = []string{
 	"class",
 	"companion",
 	"const",
+	"constructor",
 	"default",
 	"define",
 	"elif",
