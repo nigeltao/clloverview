@@ -58,7 +58,13 @@ class MyClass {
     }
 }
 
-class User @AssistedInject constructor(val name: String, @Assisted private var params: Params?) {
+class User
+@AssistedInject
+constructor(
+    val name: String,
+    // TODO: more args.
+    @Assisted private var params: Params?,
+) {
     companion object {
         private val defaultGreeting = "Hello"
     }
