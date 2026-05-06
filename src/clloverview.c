@@ -2322,6 +2322,8 @@ analyze_kotlin(void) {
             token_t t = TOKEN_AT(l++);
             if (t == TOKEN_FOR_U0029_RIGHT_PARENTHESIS) {
               break;
+            } else if (t == TOKEN_FOR_U0028_LEFT_PARENTHESIS) {
+              l = skip_brackets(l, n_lnats);
             } else if ((t == TOKEN_FOR_U003A_COLON) &&
                        token_is_namey(TOKEN_AT(l - 2u))) {
               emit_one(g_lnats[l - 2u]);

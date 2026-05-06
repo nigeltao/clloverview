@@ -28,6 +28,7 @@ org.example.MyClass.Factory     = "test/golden/K.kt:56";
 org.example.MyClass.Factory.create      = "test/golden/K.kt:57";
 org.example.User        = "test/golden/K.kt:61";
 org.example.User.name   = "test/golden/K.kt:64";
+org.example.User.intToString    = "test/golden/K.kt:65";
 org.example.User.params = "test/golden/K.kt:66";
 org.example.User.companion      = "test/golden/K.kt:68";
 org.example.User.companion.defaultGreeting      = "test/golden/K.kt:69";

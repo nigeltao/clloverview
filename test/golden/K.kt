@@ -62,7 +62,7 @@ class User
 @AssistedInject
 constructor(
     val name: String,
-    // TODO: more args.
+    private val intToString: (Int) -> String,
     @Assisted private var params: Params?,
 ) {
     companion object {
